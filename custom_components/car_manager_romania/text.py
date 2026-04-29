@@ -95,6 +95,11 @@ class VehicleConsumableText(TextEntity):
             },
         )
         self._entry.runtime_data.vehicles = list(vehicles)
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                self._vehicle = vehicle
+                break
+
         self.async_write_ha_state()
 
     @property

@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text"]
 
@@ -38,6 +38,13 @@ MAINTENANCE_TYPES: dict[str, str] = {
     MAINTENANCE_TYPE_TIMING_BELT: "Distribuție",
     MAINTENANCE_TYPE_BRAKE_FLUID: "Lichid frână",
     MAINTENANCE_TYPE_COOLANT: "Lichid antigel",
+}
+
+# Jaloane urmărite doar după timp. Pentru acestea nu generăm câmpuri/senzori de km,
+# deoarece kilometriajul nu este criteriul relevant de înlocuire.
+MAINTENANCE_TIME_ONLY_TYPES: set[str] = {
+    MAINTENANCE_TYPE_BRAKE_FLUID,
+    MAINTENANCE_TYPE_COOLANT,
 }
 
 MAINTENANCE_LAST_KM = "last_km"

@@ -23,6 +23,7 @@ from .const import (
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
+    MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
     VERSION,
 )
@@ -51,14 +52,16 @@ async def async_setup_entry(
         entities.append(CarVehicleStatusSensor(entry, vehicle))
 
         for maintenance_type, label in MAINTENANCE_TYPES.items():
-            entities.append(
-                CarVehicleMaintenanceKmRemainingSensor(
-                    entry,
-                    vehicle,
-                    maintenance_type,
-                    label,
+            if maintenance_type not in MAINTENANCE_TIME_ONLY_TYPES:
+                entities.append(
+                    CarVehicleMaintenanceKmRemainingSensor(
+                        entry,
+                        vehicle,
+                        maintenance_type,
+                        label,
+                    )
                 )
-            )
+
             entities.append(
                 CarVehicleMaintenanceDaysRemainingSensor(
                     entry,

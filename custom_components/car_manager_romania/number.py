@@ -18,6 +18,7 @@ from .const import (
     MAINTENANCE_INTERVAL_KM,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
+    MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
 )
 from .maintenance import get_maintenance_value, set_maintenance_value
@@ -42,39 +43,43 @@ async def async_setup_entry(
         )
 
         for maintenance_type, label in MAINTENANCE_TYPES.items():
-            entities.extend(
-                [
-                    VehicleMaintenanceNumber(
-                        hass,
-                        entry,
-                        vehicle,
-                        maintenance_type,
-                        MAINTENANCE_LAST_KM,
-                        f"{label} - ultimul schimb km",
-                        0,
-                        1_000_000,
-                    ),
-                    VehicleMaintenanceNumber(
-                        hass,
-                        entry,
-                        vehicle,
-                        maintenance_type,
-                        MAINTENANCE_INTERVAL_KM,
-                        f"{label} - interval km",
-                        0,
-                        1_000_000,
-                    ),
-                    VehicleMaintenanceNumber(
-                        hass,
-                        entry,
-                        vehicle,
-                        maintenance_type,
-                        MAINTENANCE_INTERVAL_DAYS,
-                        f"{label} - interval zile",
-                        0,
-                        5000,
-                    ),
-                ]
+            if maintenance_type not in MAINTENANCE_TIME_ONLY_TYPES:
+                entities.extend(
+                    [
+                        VehicleMaintenanceNumber(
+                            hass,
+                            entry,
+                            vehicle,
+                            maintenance_type,
+                            MAINTENANCE_LAST_KM,
+                            f"{label} - ultimul schimb km",
+                            0,
+                            1_000_000,
+                        ),
+                        VehicleMaintenanceNumber(
+                            hass,
+                            entry,
+                            vehicle,
+                            maintenance_type,
+                            MAINTENANCE_INTERVAL_KM,
+                            f"{label} - interval km",
+                            0,
+                            1_000_000,
+                        ),
+                    ]
+                )
+
+            entities.append(
+                VehicleMaintenanceNumber(
+                    hass,
+                    entry,
+                    vehicle,
+                    maintenance_type,
+                    MAINTENANCE_INTERVAL_DAYS,
+                    f"{label} - interval zile",
+                    0,
+                    5000,
+                )
             )
 
     async_add_entities(entities)

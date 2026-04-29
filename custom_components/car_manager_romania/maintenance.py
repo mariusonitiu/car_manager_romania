@@ -24,6 +24,7 @@ from .const import (
     MAINTENANCE_STATUS_OVERDUE,
     MAINTENANCE_STATUS_SOON,
     MAINTENANCE_STATUS_UNKNOWN,
+    MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
     MAINTENANCE_TYPES,
 )
@@ -225,13 +226,17 @@ def maintenance_remaining_values(
 
     current_km = int(vehicle.get("km", 0) or 0)
 
-    last_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM)
-    interval_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_INTERVAL_KM)
+    if maintenance_type in MAINTENANCE_TIME_ONLY_TYPES:
+        last_km = None
+        interval_km = None
+    else:
+        last_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM)
+        interval_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_INTERVAL_KM)
+        last_km = int(last_km_raw) if last_km_raw is not None else None
+        interval_km = int(interval_km_raw) if interval_km_raw is not None else None
+
     last_date = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_DATE)
     interval_days_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_INTERVAL_DAYS)
-
-    last_km = int(last_km_raw) if last_km_raw is not None else None
-    interval_km = int(interval_km_raw) if interval_km_raw is not None else None
     interval_days = int(interval_days_raw) if interval_days_raw is not None else None
 
     return (
