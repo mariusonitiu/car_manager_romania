@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -14,8 +15,12 @@ from . import CarManagerConfigEntry
 from .const import (
     ATTR_INTEGRATION_VERSION,
     CONF_KM,
+    CONF_LAST_SERVICE_DATE,
+    CONF_LAST_SERVICE_KM,
     CONF_LICENSE_PLATE,
     CONF_NAME,
+    CONF_SERVICE_INTERVAL_DAYS,
+    CONF_SERVICE_INTERVAL_KM,
     CONF_VIN,
     DOMAIN,
     VERSION,
@@ -37,6 +42,9 @@ async def async_setup_entry(
     for vehicle in entry.runtime_data.vehicles:
         entities.append(CarVehicleKmSensor(entry, vehicle))
         entities.append(CarVehicleStatusSensor(entry, vehicle))
+        entities.append(CarVehicleServiceKmRemainingSensor(entry, vehicle))
+        entities.append(CarVehicleServiceDaysRemainingSensor(entry, vehicle))
+        entities.append(CarVehicleServiceStatusSensor(entry, vehicle))
 
     async_add_entities(entities)
 
@@ -202,3 +210,127 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
             attributes[CONF_VIN] = self._vehicle[CONF_VIN]
 
         return attributes
+
+
+class CarVehicleServiceKmRemainingSensor(CarVehicleBaseSensor):
+    """Service remaining kilometers sensor."""
+
+    _attr_name = "Km rămași până la revizie"
+    _attr_icon = "mdi:counter"
+    _attr_native_unit_of_measurement = UnitOfLength.KILOMETERS
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize service remaining kilometers sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_service_km_remaining"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return remaining kilometers until next service."""
+
+        current_km = int(self._vehicle.get(CONF_KM, 0) or 0)
+        last_service_km = int(self._vehicle.get(CONF_LAST_SERVICE_KM, 0) or 0)
+        interval_km = int(self._vehicle.get(CONF_SERVICE_INTERVAL_KM, 0) or 0)
+
+        if interval_km <= 0:
+            return None
+
+        return max((last_service_km + interval_km) - current_km, 0)
+
+
+class CarVehicleServiceDaysRemainingSensor(CarVehicleBaseSensor):
+    """Service remaining days sensor."""
+
+    _attr_name = "Zile rămase până la revizie"
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize service remaining days sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_service_days_remaining"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return remaining days until next service."""
+
+        last_service_date_raw = self._vehicle.get(CONF_LAST_SERVICE_DATE)
+        interval_days = int(self._vehicle.get(CONF_SERVICE_INTERVAL_DAYS, 0) or 0)
+
+        if not last_service_date_raw or interval_days <= 0:
+            return None
+
+        try:
+            last_service_date = date.fromisoformat(str(last_service_date_raw))
+        except ValueError:
+            return None
+
+        elapsed_days = (date.today() - last_service_date).days
+
+        return max(interval_days - elapsed_days, 0)
+
+
+class CarVehicleServiceStatusSensor(CarVehicleBaseSensor):
+    """Service status sensor."""
+
+    _attr_name = "Status revizie"
+    _attr_icon = "mdi:wrench-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize service status sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_service_status"
+
+    @property
+    def native_value(self) -> str:
+        """Return service status."""
+
+        current_km = int(self._vehicle.get(CONF_KM, 0) or 0)
+        last_service_km = int(self._vehicle.get(CONF_LAST_SERVICE_KM, 0) or 0)
+        interval_km = int(self._vehicle.get(CONF_SERVICE_INTERVAL_KM, 0) or 0)
+
+        km_overdue = False
+        km_soon = False
+
+        if interval_km > 0:
+            next_service_km = last_service_km + interval_km
+            km_overdue = current_km >= next_service_km
+            km_soon = current_km >= next_service_km - 1000
+
+        days_overdue = False
+        days_soon = False
+
+        last_service_date_raw = self._vehicle.get(CONF_LAST_SERVICE_DATE)
+        interval_days = int(self._vehicle.get(CONF_SERVICE_INTERVAL_DAYS, 0) or 0)
+
+        if last_service_date_raw and interval_days > 0:
+            try:
+                last_service_date = date.fromisoformat(str(last_service_date_raw))
+                days_remaining = interval_days - (date.today() - last_service_date).days
+                days_overdue = days_remaining <= 0
+                days_soon = days_remaining <= 30
+            except ValueError:
+                pass
+
+        if km_overdue or days_overdue:
+            return "depășit"
+
+        if km_soon or days_soon:
+            return "în curând"
+
+        return "ok"
