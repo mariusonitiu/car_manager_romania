@@ -7,10 +7,19 @@
           "name": "Nume integrare"
         }
       }
+    },
+    "abort": {
+      "already_configured": "Car Manager România este deja configurată."
     }
   },
   "options": {
     "step": {
+      "init": {
+        "title": "Configurare Car Manager România",
+        "menu_options": {
+          "add_vehicle": "Adaugă autovehicul"
+        }
+      },
       "add_vehicle": {
         "title": "Adaugă autovehicul",
         "data": {

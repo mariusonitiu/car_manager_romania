@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 from homeassistant.components.number import NumberEntity
@@ -109,43 +108,33 @@ class VehicleBaseNumber(NumberEntity):
         )
 
     def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Return a safe vehicles copy from options or runtime data."""
+        """Return vehicles from options or runtime data."""
 
-        vehicles = self._entry.options.get(
-            CONF_VEHICLES,
-            self._entry.runtime_data.vehicles,
+        return list(
+            self._entry.options.get(
+                CONF_VEHICLES,
+                self._entry.runtime_data.vehicles,
+            )
         )
-
-        return deepcopy(list(vehicles))
-
-    def _sync_current_vehicle_reference(
-        self,
-        vehicles: list[dict[str, Any]],
-    ) -> None:
-        """Keep the current entity object in sync after persisting."""
-
-        for vehicle in vehicles:
-            if vehicle["vehicle_id"] == self._vehicle_id:
-                self._vehicle = vehicle
-                break
 
     def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in config entry options and update runtime data."""
-
-        safe_vehicles = deepcopy(vehicles)
 
         self._hass.config_entries.async_update_entry(
             self._entry,
             options={
                 **dict(self._entry.options),
-                CONF_VEHICLES: safe_vehicles,
+                CONF_VEHICLES: vehicles,
             },
         )
 
-        # Actualizăm imediat runtime_data, pentru ca entitățile calculate să vadă
-        # noile valori până la următorul reload/restart al integrării.
-        self._entry.runtime_data.vehicles = deepcopy(safe_vehicles)
-        self._sync_current_vehicle_reference(self._entry.runtime_data.vehicles)
+        self._entry.runtime_data.vehicles = list(vehicles)
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                self._vehicle = vehicle
+                break
+
+        self.async_write_ha_state()
 
 
 class VehicleKmNumber(VehicleBaseNumber):
@@ -184,7 +173,6 @@ class VehicleKmNumber(VehicleBaseNumber):
                 break
 
         self._persist_vehicles(vehicles)
-        self.async_write_ha_state()
 
 
 class VehicleMaintenanceNumber(VehicleBaseNumber):
@@ -254,4 +242,3 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
                 break
 
         self._persist_vehicles(vehicles)
-        self.async_write_ha_state()
