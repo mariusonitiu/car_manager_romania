@@ -3,15 +3,23 @@
     "step": {
       "user": {
         "title": "Car Manager România",
-        "description": "Configurează integrarea principală Car Manager România.",
         "data": {
           "name": "Nume integrare"
         }
       }
-    },
-    "error": {},
-    "abort": {
-      "already_configured": "Car Manager România este deja configurată."
+    }
+  },
+  "options": {
+    "step": {
+      "add_vehicle": {
+        "title": "Adaugă autovehicul",
+        "data": {
+          "name": "Nume",
+          "license_plate": "Număr înmatriculare",
+          "vin": "VIN",
+          "km": "Kilometri"
+        }
+      }
     }
   }
 }

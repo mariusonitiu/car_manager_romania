@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import PLATFORMS, VERSION
+from .const import CONF_VEHICLES, PLATFORMS, VERSION
 
 
 @dataclass(slots=True)
@@ -15,7 +15,7 @@ class CarManagerRuntimeData:
     """Runtime data for Car Manager România."""
 
     integration_version: str
-    vehicle_count: int = 0
+    vehicles: list[dict]
 
 
 type CarManagerConfigEntry = ConfigEntry[CarManagerRuntimeData]
@@ -27,9 +27,11 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Car Manager România from a config entry."""
 
+    vehicles = entry.data.get(CONF_VEHICLES, [])
+
     entry.runtime_data = CarManagerRuntimeData(
         integration_version=VERSION,
-        vehicle_count=0,
+        vehicles=vehicles,
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -9,7 +9,15 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DEFAULT_NAME, DOMAIN
+from .const import (
+    CONF_KM,
+    CONF_LICENSE_PLATE,
+    CONF_NAME,
+    CONF_VEHICLES,
+    CONF_VIN,
+    DEFAULT_NAME,
+    DOMAIN,
+)
 
 
 class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -21,20 +29,17 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Handle the initial step."""
+        """Initial setup."""
 
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
 
-        errors: dict[str, str] = {}
-
         if user_input is not None:
-            name = user_input.get("name", DEFAULT_NAME).strip() or DEFAULT_NAME
-
             return self.async_create_entry(
-                title=name,
+                title=user_input.get("name", DEFAULT_NAME),
                 data={
-                    "name": name,
+                    "name": user_input.get("name", DEFAULT_NAME),
+                    CONF_VEHICLES: [],
                 },
             )
 
@@ -45,5 +50,51 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional("name", default=DEFAULT_NAME): str,
                 }
             ),
-            errors=errors,
         )
+
+
+class CarManagerOptionsFlow(config_entries.OptionsFlow):
+    """Handle options for Car Manager România."""
+
+    def __init__(self, entry: config_entries.ConfigEntry) -> None:
+        self._entry = entry
+
+    async def async_step_init(self, user_input=None):
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["add_vehicle"],
+        )
+
+    async def async_step_add_vehicle(self, user_input=None):
+        if user_input is not None:
+            vehicles = list(self._entry.data.get(CONF_VEHICLES, []))
+
+            vehicles.append(
+                {
+                    CONF_NAME: user_input[CONF_NAME],
+                    CONF_LICENSE_PLATE: user_input[CONF_LICENSE_PLATE],
+                    CONF_VIN: user_input.get(CONF_VIN),
+                    CONF_KM: user_input.get(CONF_KM, 0),
+                }
+            )
+
+            return self.async_create_entry(
+                title="OK",
+                data={CONF_VEHICLES: vehicles},
+            )
+
+        return self.async_show_form(
+            step_id="add_vehicle",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_NAME): str,
+                    vol.Required(CONF_LICENSE_PLATE): str,
+                    vol.Optional(CONF_VIN): str,
+                    vol.Optional(CONF_KM, default=0): int,
+                }
+            ),
+        )
+
+
+async def async_get_options_flow(entry):
+    return CarManagerOptionsFlow(entry)
