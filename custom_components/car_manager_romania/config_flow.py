@@ -8,6 +8,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.util import slugify
 
 from .const import (
     CONF_KM,
@@ -25,6 +26,14 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> CarManagerOptionsFlow:
+        """Create the options flow."""
+
+        return CarManagerOptionsFlow(config_entry)
+
     async def async_step_user(
         self,
         user_input: dict[str, Any] | None = None,
@@ -35,10 +44,12 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         if user_input is not None:
+            name = user_input.get(CONF_NAME, DEFAULT_NAME).strip() or DEFAULT_NAME
+
             return self.async_create_entry(
-                title=user_input.get("name", DEFAULT_NAME),
+                title=name,
                 data={
-                    "name": user_input.get("name", DEFAULT_NAME),
+                    CONF_NAME: name,
                     CONF_VEHICLES: [],
                 },
             )
@@ -47,7 +58,7 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Optional("name", default=DEFAULT_NAME): str,
+                    vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
                 }
             ),
         )
@@ -57,30 +68,62 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Car Manager România."""
 
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+
         self._entry = entry
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        """Show options menu."""
+
         return self.async_show_menu(
             step_id="init",
             menu_options=["add_vehicle"],
         )
 
-    async def async_step_add_vehicle(self, user_input=None):
-        if user_input is not None:
-            vehicles = list(self._entry.data.get(CONF_VEHICLES, []))
+    async def async_step_add_vehicle(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        """Add a vehicle."""
 
-            vehicles.append(
+        if user_input is not None:
+            existing_vehicles = list(
+                self._entry.options.get(
+                    CONF_VEHICLES,
+                    self._entry.data.get(CONF_VEHICLES, []),
+                )
+            )
+
+            vehicle_name = user_input[CONF_NAME].strip()
+            license_plate = user_input[CONF_LICENSE_PLATE].strip().upper()
+            vin = (user_input.get(CONF_VIN) or "").strip().upper()
+            km = user_input.get(CONF_KM, 0)
+
+            vehicle_id = self._generate_vehicle_id(
+                existing_vehicles,
+                license_plate,
+                vehicle_name,
+            )
+
+            existing_vehicles.append(
                 {
-                    CONF_NAME: user_input[CONF_NAME],
-                    CONF_LICENSE_PLATE: user_input[CONF_LICENSE_PLATE],
-                    CONF_VIN: user_input.get(CONF_VIN),
-                    CONF_KM: user_input.get(CONF_KM, 0),
+                    "vehicle_id": vehicle_id,
+                    CONF_NAME: vehicle_name,
+                    CONF_LICENSE_PLATE: license_plate,
+                    CONF_VIN: vin,
+                    CONF_KM: km,
                 }
             )
 
             return self.async_create_entry(
-                title="OK",
-                data={CONF_VEHICLES: vehicles},
+                title="",
+                data={
+                    **dict(self._entry.options),
+                    CONF_VEHICLES: existing_vehicles,
+                },
             )
 
         return self.async_show_form(
@@ -95,6 +138,22 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
             ),
         )
 
+    @staticmethod
+    def _generate_vehicle_id(
+        vehicles: list[dict[str, Any]],
+        license_plate: str,
+        vehicle_name: str,
+    ) -> str:
+        """Generate a stable vehicle ID."""
 
-async def async_get_options_flow(entry):
-    return CarManagerOptionsFlow(entry)
+        base_id = slugify(license_plate) or slugify(vehicle_name) or "autovehicul"
+        existing_ids = {vehicle.get("vehicle_id") for vehicle in vehicles}
+
+        if base_id not in existing_ids:
+            return base_id
+
+        counter = 2
+        while f"{base_id}_{counter}" in existing_ids:
+            counter += 1
+
+        return f"{base_id}_{counter}"
