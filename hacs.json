@@ -1,1 +1,7 @@
 
+{
+  "name": "Car Manager România",
+  "content_in_root": false,
+  "render_readme": true,
+  "domains": ["car_manager_romania"]
+}
