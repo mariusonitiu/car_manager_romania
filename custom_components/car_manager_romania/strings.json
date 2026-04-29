@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Car Manager România",
+        "description": "Configurează integrarea principală Car Manager România.",
+        "data": {
+          "name": "Nume integrare"
+        }
+      }
+    },
+    "error": {},
+    "abort": {
+      "already_configured": "Car Manager România este deja configurată."
+    }
+  }
+}
