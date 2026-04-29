@@ -5,78 +5,232 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.number import NumberEntity
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import CarManagerConfigEntry
 from .const import (
     CONF_KM,
-    CONF_LAST_SERVICE_KM,
-    CONF_SERVICE_INTERVAL_KM,
-    CONF_SERVICE_INTERVAL_DAYS,
     CONF_VEHICLES,
     DOMAIN,
+    MAINTENANCE_INTERVAL_DAYS,
+    MAINTENANCE_INTERVAL_KM,
+    MAINTENANCE_LAST_KM,
+    MAINTENANCE_TYPES,
+    MAINTENANCE_TYPE_SERVICE,
 )
+from .maintenance import get_maintenance_value, set_maintenance_value
 
 
-async def async_setup_entry(hass, entry: CarManagerConfigEntry, async_add_entities):
-    entities = []
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: CarManagerConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up number entities."""
+
+    entities: list[NumberEntity] = []
 
     for vehicle in entry.runtime_data.vehicles:
-        entities.extend(
-            [
-                VehicleNumber(hass, entry, vehicle, CONF_KM, "Kilometri actuali", 0, 1_000_000),
-                VehicleNumber(hass, entry, vehicle, CONF_LAST_SERVICE_KM, "Ultima revizie km", 0, 1_000_000),
-                VehicleNumber(hass, entry, vehicle, CONF_SERVICE_INTERVAL_KM, "Interval revizie km", 1000, 50000),
-                VehicleNumber(hass, entry, vehicle, CONF_SERVICE_INTERVAL_DAYS, "Interval revizie zile", 30, 1000),
-            ]
+        entities.append(
+            VehicleKmNumber(
+                hass,
+                entry,
+                vehicle,
+            )
         )
+
+        for maintenance_type, label in MAINTENANCE_TYPES.items():
+            entities.extend(
+                [
+                    VehicleMaintenanceNumber(
+                        hass,
+                        entry,
+                        vehicle,
+                        maintenance_type,
+                        MAINTENANCE_LAST_KM,
+                        f"{label} - ultimul schimb km",
+                        0,
+                        1_000_000,
+                    ),
+                    VehicleMaintenanceNumber(
+                        hass,
+                        entry,
+                        vehicle,
+                        maintenance_type,
+                        MAINTENANCE_INTERVAL_KM,
+                        f"{label} - interval km",
+                        0,
+                        1_000_000,
+                    ),
+                    VehicleMaintenanceNumber(
+                        hass,
+                        entry,
+                        vehicle,
+                        maintenance_type,
+                        MAINTENANCE_INTERVAL_DAYS,
+                        f"{label} - interval zile",
+                        0,
+                        5000,
+                    ),
+                ]
+            )
 
     async_add_entities(entities)
 
 
-class VehicleNumber(NumberEntity):
+class VehicleBaseNumber(NumberEntity):
+    """Base number entity for vehicle values."""
+
+    _attr_has_entity_name = True
+    _attr_native_step = 1
+
     def __init__(
         self,
-        hass,
+        hass: HomeAssistant,
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
-        key: str,
-        name: str,
-        min_v: int,
-        max_v: int,
-    ):
+    ) -> None:
+        """Initialize base vehicle number."""
+
         self._hass = hass
         self._entry = entry
         self._vehicle = vehicle
-        self._key = key
         self._vehicle_id = vehicle["vehicle_id"]
-
-        self._attr_name = name
-        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{key}"
-        self._attr_native_min_value = min_v
-        self._attr_native_max_value = max_v
-        self._attr_native_step = 1
-
-    @property
-    def native_value(self):
-        return int(self._vehicle.get(self._key, 0) or 0)
-
-    async def async_set_native_value(self, value):
-        vehicles = list(
-            self._entry.options.get(CONF_VEHICLES, self._entry.runtime_data.vehicles)
-        )
-
-        for v in vehicles:
-            if v["vehicle_id"] == self._vehicle_id:
-                v[self._key] = int(value)
-
-        self._hass.config_entries.async_update_entry(
-            self._entry,
-            options={CONF_VEHICLES: vehicles},
-        )
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return vehicle device information."""
+
         return DeviceInfo(
             identifiers={(DOMAIN, self._vehicle_id)},
         )
+
+    def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
+        """Return vehicles from options or runtime data."""
+
+        return list(
+            self._entry.options.get(
+                CONF_VEHICLES,
+                self._entry.runtime_data.vehicles,
+            )
+        )
+
+    def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
+        """Persist vehicles in config entry options."""
+
+        self._hass.config_entries.async_update_entry(
+            self._entry,
+            options={
+                **dict(self._entry.options),
+                CONF_VEHICLES: vehicles,
+            },
+        )
+
+
+class VehicleKmNumber(VehicleBaseNumber):
+    """Editable current vehicle kilometers."""
+
+    _attr_name = "Kilometri actuali"
+    _attr_icon = "mdi:speedometer"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1_000_000
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize current km number."""
+
+        super().__init__(hass, entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{CONF_KM}"
+
+    @property
+    def native_value(self) -> int:
+        """Return current kilometers."""
+
+        return int(self._vehicle.get(CONF_KM, 0) or 0)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set and persist current kilometers."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                vehicle[CONF_KM] = int(value)
+                break
+
+        self._persist_vehicles(vehicles)
+
+
+class VehicleMaintenanceNumber(VehicleBaseNumber):
+    """Editable maintenance number."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+        maintenance_type: str,
+        field: str,
+        name: str,
+        min_value: int,
+        max_value: int,
+    ) -> None:
+        """Initialize maintenance number."""
+
+        super().__init__(hass, entry, vehicle)
+
+        self._maintenance_type = maintenance_type
+        self._field = field
+
+        self._attr_name = name
+        self._attr_icon = "mdi:wrench"
+        self._attr_native_min_value = min_value
+        self._attr_native_max_value = max_value
+
+        if maintenance_type == MAINTENANCE_TYPE_SERVICE:
+            legacy_unique_id_map = {
+                MAINTENANCE_LAST_KM: "last_service_km",
+                MAINTENANCE_INTERVAL_KM: "service_interval_km",
+                MAINTENANCE_INTERVAL_DAYS: "service_interval_days",
+            }
+            unique_suffix = legacy_unique_id_map[field]
+        else:
+            unique_suffix = f"maintenance_{maintenance_type}_{field}"
+
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{unique_suffix}"
+
+    @property
+    def native_value(self) -> int:
+        """Return maintenance number value."""
+
+        return int(
+            get_maintenance_value(
+                self._vehicle,
+                self._maintenance_type,
+                self._field,
+            )
+            or 0
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set and persist maintenance number value."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                set_maintenance_value(
+                    vehicle,
+                    self._maintenance_type,
+                    self._field,
+                    int(value),
+                )
+                break
+
+        self._persist_vehicles(vehicles)
