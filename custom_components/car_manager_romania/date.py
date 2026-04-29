@@ -16,13 +16,14 @@ async def async_setup_entry(hass, entry: CarManagerConfigEntry, async_add_entiti
     entities = []
 
     for vehicle in entry.runtime_data.vehicles:
-        entities.append(VehicleServiceDate(entry, vehicle))
+        entities.append(VehicleServiceDate(hass, entry, vehicle))
 
     async_add_entities(entities)
 
 
 class VehicleServiceDate(DateEntity):
-    def __init__(self, entry: CarManagerConfigEntry, vehicle: dict[str, Any]):
+    def __init__(self, hass, entry: CarManagerConfigEntry, vehicle: dict[str, Any]):
+        self._hass = hass
         self._entry = entry
         self._vehicle = vehicle
         self._vehicle_id = vehicle["vehicle_id"]
@@ -42,8 +43,6 @@ class VehicleServiceDate(DateEntity):
             return None
 
     async def async_set_value(self, value: date):
-        """Persist date."""
-
         vehicles = list(
             self._entry.options.get(CONF_VEHICLES, self._entry.runtime_data.vehicles)
         )
@@ -52,7 +51,7 @@ class VehicleServiceDate(DateEntity):
             if v["vehicle_id"] == self._vehicle_id:
                 v[CONF_LAST_SERVICE_DATE] = value.isoformat()
 
-        self._entry.hass.config_entries.async_update_entry(
+        self._hass.config_entries.async_update_entry(
             self._entry,
             options={CONF_VEHICLES: vehicles},
         )

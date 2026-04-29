@@ -24,10 +24,10 @@ async def async_setup_entry(hass, entry: CarManagerConfigEntry, async_add_entiti
     for vehicle in entry.runtime_data.vehicles:
         entities.extend(
             [
-                VehicleNumber(entry, vehicle, CONF_KM, "Kilometri actuali", 0, 1_000_000),
-                VehicleNumber(entry, vehicle, CONF_LAST_SERVICE_KM, "Ultima revizie km", 0, 1_000_000),
-                VehicleNumber(entry, vehicle, CONF_SERVICE_INTERVAL_KM, "Interval revizie km", 1000, 50000),
-                VehicleNumber(entry, vehicle, CONF_SERVICE_INTERVAL_DAYS, "Interval revizie zile", 30, 1000),
+                VehicleNumber(hass, entry, vehicle, CONF_KM, "Kilometri actuali", 0, 1_000_000),
+                VehicleNumber(hass, entry, vehicle, CONF_LAST_SERVICE_KM, "Ultima revizie km", 0, 1_000_000),
+                VehicleNumber(hass, entry, vehicle, CONF_SERVICE_INTERVAL_KM, "Interval revizie km", 1000, 50000),
+                VehicleNumber(hass, entry, vehicle, CONF_SERVICE_INTERVAL_DAYS, "Interval revizie zile", 30, 1000),
             ]
         )
 
@@ -37,6 +37,7 @@ async def async_setup_entry(hass, entry: CarManagerConfigEntry, async_add_entiti
 class VehicleNumber(NumberEntity):
     def __init__(
         self,
+        hass,
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
         key: str,
@@ -44,6 +45,7 @@ class VehicleNumber(NumberEntity):
         min_v: int,
         max_v: int,
     ):
+        self._hass = hass
         self._entry = entry
         self._vehicle = vehicle
         self._key = key
@@ -60,8 +62,6 @@ class VehicleNumber(NumberEntity):
         return int(self._vehicle.get(self._key, 0) or 0)
 
     async def async_set_native_value(self, value):
-        """Persist value in config entry."""
-
         vehicles = list(
             self._entry.options.get(CONF_VEHICLES, self._entry.runtime_data.vehicles)
         )
@@ -70,7 +70,7 @@ class VehicleNumber(NumberEntity):
             if v["vehicle_id"] == self._vehicle_id:
                 v[self._key] = int(value)
 
-        self._entry.hass.config_entries.async_update_entry(
+        self._hass.config_entries.async_update_entry(
             self._entry,
             options={CONF_VEHICLES: vehicles},
         )
