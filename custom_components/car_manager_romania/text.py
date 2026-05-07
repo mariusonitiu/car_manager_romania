@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 from homeassistant.components.text import TextEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from .device import build_vehicle_device_info
 
 from . import CarManagerConfigEntry
 from .const import CONF_CONSUMABLES, CONF_VEHICLES, CONSUMABLE_TYPES, DOMAIN
@@ -56,6 +56,7 @@ class VehicleConsumableText(TextEntity):
 
         self._hass = hass
         self._entry = entry
+        self._vehicle = vehicle
         self._vehicle_id = vehicle["vehicle_id"]
         self._consumable_key = consumable_key
 
@@ -64,43 +65,26 @@ class VehicleConsumableText(TextEntity):
             f"{entry.entry_id}_{self._vehicle_id}_consumable_{consumable_key}"
         )
 
-    def _runtime_vehicle(self) -> dict[str, Any] | None:
-        """Return current runtime vehicle by id."""
-
-        for vehicle in self._entry.runtime_data.vehicles:
-            if vehicle.get("vehicle_id") == self._vehicle_id:
-                return vehicle
-
-        return None
-
-    def _vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Return a writable copy of vehicles from options or runtime data."""
-
-        source = self._entry.options.get(
-            CONF_VEHICLES,
-            self._entry.runtime_data.vehicles,
-        )
-        return deepcopy(list(source))
-
     @property
     def native_value(self) -> str | None:
         """Return consumable value."""
 
-        vehicle = self._runtime_vehicle()
-        if vehicle is None:
-            return ""
-
-        consumables = vehicle.get(CONF_CONSUMABLES, {})
+        consumables = self._vehicle.get(CONF_CONSUMABLES, {})
         value = consumables.get(self._consumable_key)
         return str(value) if value is not None else ""
 
     async def async_set_value(self, value: str) -> None:
         """Set and persist consumable value."""
 
-        vehicles = self._vehicles_for_update()
+        vehicles = list(
+            self._entry.options.get(
+                CONF_VEHICLES,
+                self._entry.runtime_data.vehicles,
+            )
+        )
 
         for vehicle in vehicles:
-            if vehicle.get("vehicle_id") == self._vehicle_id:
+            if vehicle["vehicle_id"] == self._vehicle_id:
                 vehicle.setdefault(CONF_CONSUMABLES, {})[self._consumable_key] = value
                 break
 
@@ -111,14 +95,18 @@ class VehicleConsumableText(TextEntity):
                 CONF_VEHICLES: vehicles,
             },
         )
+        self._entry.runtime_data.vehicles = list(vehicles)
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                self._vehicle = vehicle
+                break
 
-        self._entry.runtime_data.vehicles = deepcopy(vehicles)
         self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return vehicle device information."""
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._vehicle_id)},
+        return build_vehicle_device_info(
+            self._vehicle,
         )

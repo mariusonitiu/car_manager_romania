@@ -5,9 +5,9 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.5.2"
+VERSION = "0.5.1"
 
-PLATFORMS: list[str] = ["sensor", "number", "date", "text"]
+PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
 ATTR_INTEGRATION_VERSION = "integration_version"
 
@@ -127,3 +127,11 @@ DEFAULT_CONSUMABLE_VALUES: dict[str, str] = {
 
 STORAGE_KEY_NOTIFICATIONS = f"{DOMAIN}_notifications"
 STORAGE_VERSION_NOTIFICATIONS = 1
+
+# Modul intern e-rovinieta.ro.
+CONF_ROVINIETA_USERNAME = "rovinieta_username"
+CONF_ROVINIETA_PASSWORD = "rovinieta_password"
+CONF_ROVINIETA_SCAN_INTERVAL = "rovinieta_scan_interval"
+
+DEFAULT_ROVINIETA_SCAN_INTERVAL = 6 * 60 * 60
+MIN_ROVINIETA_SCAN_INTERVAL = 15 * 60

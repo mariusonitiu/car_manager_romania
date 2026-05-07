@@ -9,6 +9,7 @@ from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from .device import build_vehicle_device_info
 
 from . import CarManagerConfigEntry
 from .const import (
@@ -33,6 +34,7 @@ from .maintenance import (
     calculate_maintenance_status,
     get_maintenance_value,
 )
+from .rovinieta.sensor import async_setup_rovinieta_sensors
 
 
 async def async_setup_entry(
@@ -80,6 +82,8 @@ async def async_setup_entry(
             )
 
     async_add_entities(entities)
+
+    await async_setup_rovinieta_sensors(hass, entry, async_add_entities)
 
 
 class CarManagerBaseSensor(SensorEntity):
@@ -174,12 +178,8 @@ class CarVehicleBaseSensor(SensorEntity):
     def device_info(self) -> DeviceInfo:
         """Return vehicle device information."""
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._vehicle_id)},
-            name=self._vehicle.get(CONF_NAME, "Autovehicul"),
-            manufacturer="Car Manager România",
-            model="Autovehicul",
-            serial_number=self._vehicle.get(CONF_VIN) or None,
+        return build_vehicle_device_info(
+            self._vehicle,
         )
 
 

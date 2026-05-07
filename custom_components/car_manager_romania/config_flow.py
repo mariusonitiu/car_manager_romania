@@ -14,10 +14,15 @@ from .const import (
     CONF_KM,
     CONF_LICENSE_PLATE,
     CONF_NAME,
+    CONF_ROVINIETA_PASSWORD,
+    CONF_ROVINIETA_SCAN_INTERVAL,
+    CONF_ROVINIETA_USERNAME,
     CONF_VEHICLES,
     CONF_VIN,
     DEFAULT_NAME,
+    DEFAULT_ROVINIETA_SCAN_INTERVAL,
     DOMAIN,
+    MIN_ROVINIETA_SCAN_INTERVAL,
 )
 
 
@@ -80,7 +85,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_vehicle"],
+            menu_options=["add_vehicle", "rovinieta"],
         )
 
     async def async_step_add_vehicle(
@@ -136,6 +141,54 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional(CONF_KM, default=0): int,
                 }
             ),
+        )
+
+    async def async_step_rovinieta(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        """Configure internal e-rovinieta.ro account."""
+
+        options = dict(self._entry.options)
+
+        if user_input is not None:
+            username = (user_input.get(CONF_ROVINIETA_USERNAME) or "").strip()
+            password = user_input.get(CONF_ROVINIETA_PASSWORD) or ""
+            scan_interval = max(
+                MIN_ROVINIETA_SCAN_INTERVAL,
+                int(user_input.get(CONF_ROVINIETA_SCAN_INTERVAL) or DEFAULT_ROVINIETA_SCAN_INTERVAL),
+            )
+
+            options[CONF_ROVINIETA_USERNAME] = username
+            if password:
+                options[CONF_ROVINIETA_PASSWORD] = password
+            elif not username:
+                options.pop(CONF_ROVINIETA_PASSWORD, None)
+            options[CONF_ROVINIETA_SCAN_INTERVAL] = scan_interval
+
+            return self.async_create_entry(title="", data=options)
+
+        return self.async_show_form(
+            step_id="rovinieta",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_ROVINIETA_USERNAME,
+                        default=options.get(CONF_ROVINIETA_USERNAME, ""),
+                    ): str,
+                    vol.Optional(CONF_ROVINIETA_PASSWORD): str,
+                    vol.Optional(
+                        CONF_ROVINIETA_SCAN_INTERVAL,
+                        default=options.get(
+                            CONF_ROVINIETA_SCAN_INTERVAL,
+                            DEFAULT_ROVINIETA_SCAN_INTERVAL,
+                        ),
+                    ): int,
+                }
+            ),
+            description_placeholders={
+                "password_note": "Lasă parola goală dacă nu vrei să o modifici.",
+            },
         )
 
     @staticmethod

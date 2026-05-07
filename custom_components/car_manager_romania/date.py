@@ -9,6 +9,7 @@ from homeassistant.components.date import DateEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from .device import build_vehicle_device_info
 
 from . import CarManagerConfigEntry
 from .const import (
@@ -128,6 +129,6 @@ class VehicleMaintenanceDate(DateEntity):
     def device_info(self) -> DeviceInfo:
         """Return vehicle device information."""
 
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._vehicle_id)},
+        return build_vehicle_device_info(
+            self._vehicle,
         )
