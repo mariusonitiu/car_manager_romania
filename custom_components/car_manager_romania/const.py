@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.6.4"
+VERSION = "0.6.5"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -145,9 +145,11 @@ MIN_ROVINIETA_SCAN_INTERVAL = 15 * 60
 CONF_LEGAL_TERMS = "legal_terms"
 
 LEGAL_TYPE_RCA = "rca"
+LEGAL_TYPE_ITP = "itp"
 
 LEGAL_TYPES: dict[str, str] = {
     LEGAL_TYPE_RCA: "RCA",
+    LEGAL_TYPE_ITP: "ITP",
 }
 
 LEGAL_START_DATE = "start_date"
@@ -169,4 +171,15 @@ RCA_TEXT_FIELDS: dict[str, str] = {
     RCA_INSURER: "RCA - asigurător",
     RCA_POLICY_NUMBER: "RCA - număr poliță",
     RCA_NOTES: "RCA - observații",
+}
+
+# Câmpuri ITP introduse manual. Verificarea automată se va trata separat ulterior.
+ITP_STATION = "station"
+ITP_REPORT_NUMBER = "report_number"
+ITP_NOTES = "notes"
+
+ITP_TEXT_FIELDS: dict[str, str] = {
+    ITP_STATION: "ITP - stație",
+    ITP_REPORT_NUMBER: "ITP - număr raport",
+    ITP_NOTES: "ITP - observații",
 }

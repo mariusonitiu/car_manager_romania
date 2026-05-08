@@ -18,7 +18,7 @@ from .const import (
     CONF_LICENSE_PLATE,
     LEGAL_END_DATE,
     LEGAL_START_DATE,
-    LEGAL_TYPE_RCA,
+    LEGAL_TYPES,
     CONF_NAME,
     CONF_VIN,
     DOMAIN,
@@ -85,12 +85,13 @@ async def async_setup_entry(
                 )
             )
 
-        entities.extend(
-            [
-                CarVehicleRcaDaysRemainingSensor(entry, vehicle),
-                CarVehicleRcaStatusSensor(entry, vehicle),
-            ]
-        )
+        for legal_type, label in LEGAL_TYPES.items():
+            entities.extend(
+                [
+                    CarVehicleLegalDaysRemainingSensor(entry, vehicle, legal_type, label),
+                    CarVehicleLegalStatusSensor(entry, vehicle, legal_type, label),
+                ]
+            )
 
     async_add_entities(entities)
 
@@ -459,42 +460,56 @@ class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
             self._days_remaining(),
         )
 
-class CarVehicleRcaDaysRemainingSensor(CarVehicleBaseSensor):
-    """RCA remaining days sensor."""
+class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
+    """Legal term remaining days sensor."""
 
-    _attr_name = "Zile rămase până la RCA"
     _attr_icon = "mdi:calendar-clock"
 
     def __init__(
         self,
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
+        legal_type: str,
+        label: str,
     ) -> None:
-        """Initialize RCA remaining days sensor."""
+        """Initialize legal term remaining days sensor."""
 
         super().__init__(entry, vehicle)
-        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_days_remaining"
+        self._legal_type = legal_type
+        self._label = label
+        self._attr_name = f"Zile rămase până la {label}"
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{self._vehicle_id}_{legal_type}_days_remaining"
+        )
 
     @property
     def native_value(self) -> int | None:
-        """Return remaining days until RCA expiration."""
+        """Return remaining days until legal term expiration."""
 
-        return legal_days_remaining(self._vehicle, LEGAL_TYPE_RCA)
+        return legal_days_remaining(self._vehicle, self._legal_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return RCA date attributes."""
+        """Return legal term date attributes."""
 
         return {
-            "incepe_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_START_DATE),
-            "expira_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_END_DATE),
+            "tip": self._label,
+            "incepe_la": get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_START_DATE,
+            ),
+            "expira_la": get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_END_DATE,
+            ),
         }
 
 
-class CarVehicleRcaStatusSensor(CarVehicleBaseSensor):
-    """RCA status sensor."""
+class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
+    """Legal term status sensor."""
 
-    _attr_name = "Status RCA"
     _attr_icon = "mdi:shield-car"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -502,24 +517,38 @@ class CarVehicleRcaStatusSensor(CarVehicleBaseSensor):
         self,
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
+        legal_type: str,
+        label: str,
     ) -> None:
-        """Initialize RCA status sensor."""
+        """Initialize legal term status sensor."""
 
         super().__init__(entry, vehicle)
-        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_status"
+        self._legal_type = legal_type
+        self._label = label
+        self._attr_name = f"Status {label}"
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{legal_type}_status"
 
     @property
     def native_value(self) -> str:
-        """Return calculated RCA status."""
+        """Return calculated legal term status."""
 
-        return legal_status(self._vehicle, LEGAL_TYPE_RCA)
+        return legal_status(self._vehicle, self._legal_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return RCA attributes without external lookups."""
+        """Return legal term attributes without external lookups."""
 
         return {
-            "incepe_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_START_DATE),
-            "expira_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_END_DATE),
-            "zile_ramase": legal_days_remaining(self._vehicle, LEGAL_TYPE_RCA),
+            "tip": self._label,
+            "incepe_la": get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_START_DATE,
+            ),
+            "expira_la": get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_END_DATE,
+            ),
+            "zile_ramase": legal_days_remaining(self._vehicle, self._legal_type),
         }

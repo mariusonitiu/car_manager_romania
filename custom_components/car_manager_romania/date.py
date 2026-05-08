@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date
 from typing import Any
 
@@ -14,7 +15,7 @@ from . import CarManagerConfigEntry
 from .const import (
     LEGAL_END_DATE,
     LEGAL_START_DATE,
-    LEGAL_TYPE_RCA,
+    LEGAL_TYPES,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_TYPES,
     MAINTENANCE_TYPE_SERVICE,
@@ -45,28 +46,29 @@ async def async_setup_entry(
                 )
             )
 
-        entities.extend(
-            [
-                VehicleLegalDate(
-                    hass,
-                    entry,
-                    vehicle,
-                    LEGAL_TYPE_RCA,
-                    LEGAL_START_DATE,
-                    "RCA începe la",
-                    "rca_start_date",
-                ),
-                VehicleLegalDate(
-                    hass,
-                    entry,
-                    vehicle,
-                    LEGAL_TYPE_RCA,
-                    LEGAL_END_DATE,
-                    "RCA expiră la",
-                    "rca_end_date",
-                ),
-            ]
-        )
+        for legal_type, label in LEGAL_TYPES.items():
+            entities.extend(
+                [
+                    VehicleLegalDate(
+                        hass,
+                        entry,
+                        vehicle,
+                        legal_type,
+                        LEGAL_START_DATE,
+                        f"{label} începe la",
+                        f"{legal_type}_start_date",
+                    ),
+                    VehicleLegalDate(
+                        hass,
+                        entry,
+                        vehicle,
+                        legal_type,
+                        LEGAL_END_DATE,
+                        f"{label} expiră la",
+                        f"{legal_type}_end_date",
+                    ),
+                ]
+            )
 
     async_add_entities(entities)
 
@@ -103,7 +105,7 @@ class VehicleBaseDate(DateEntity):
         and overwrite fields previously edited from other entities.
         """
 
-        return [dict(vehicle) for vehicle in self._entry.runtime_data.vehicles]
+        return deepcopy(self._entry.runtime_data.vehicles)
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in Home Assistant storage and refresh runtime data."""

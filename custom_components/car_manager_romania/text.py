@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from homeassistant.components.text import TextEntity
@@ -13,11 +14,19 @@ from . import CarManagerConfigEntry
 from .const import (
     CONF_CONSUMABLES,
     CONSUMABLE_TYPES,
+    ITP_TEXT_FIELDS,
+    LEGAL_TYPE_ITP,
     LEGAL_TYPE_RCA,
     RCA_TEXT_FIELDS,
 )
 from .device import build_vehicle_device_info
 from .legal import get_legal_value, set_legal_value
+
+
+LEGAL_TEXT_FIELDS: dict[str, dict[str, str]] = {
+    LEGAL_TYPE_RCA: RCA_TEXT_FIELDS,
+    LEGAL_TYPE_ITP: ITP_TEXT_FIELDS,
+}
 
 
 async def async_setup_entry(
@@ -41,16 +50,18 @@ async def async_setup_entry(
                 )
             )
 
-        for field, label in RCA_TEXT_FIELDS.items():
-            entities.append(
-                VehicleRcaText(
-                    hass,
-                    entry,
-                    vehicle,
-                    field,
-                    label,
+        for legal_type, fields in LEGAL_TEXT_FIELDS.items():
+            for field, label in fields.items():
+                entities.append(
+                    VehicleLegalText(
+                        hass,
+                        entry,
+                        vehicle,
+                        legal_type,
+                        field,
+                        label,
+                    )
                 )
-            )
 
     async_add_entities(entities)
 
@@ -87,7 +98,7 @@ class VehicleBaseText(TextEntity):
         and overwrite fields previously edited from other entities.
         """
 
-        return [dict(vehicle) for vehicle in self._entry.runtime_data.vehicles]
+        return deepcopy(self._entry.runtime_data.vehicles)
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in Home Assistant storage and refresh runtime data."""
@@ -147,8 +158,8 @@ class VehicleConsumableText(VehicleBaseText):
         await self._persist_vehicles(vehicles)
 
 
-class VehicleRcaText(VehicleBaseText):
-    """Editable RCA text field."""
+class VehicleLegalText(VehicleBaseText):
+    """Editable legal term text field."""
 
     _attr_icon = "mdi:shield-car"
 
@@ -157,31 +168,33 @@ class VehicleRcaText(VehicleBaseText):
         hass: HomeAssistant,
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
+        legal_type: str,
         field: str,
         label: str,
     ) -> None:
-        """Initialize RCA text entity."""
+        """Initialize legal term text entity."""
 
         super().__init__(hass, entry, vehicle)
+        self._legal_type = legal_type
         self._field = field
         self._attr_name = label
-        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_{field}"
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{legal_type}_{field}"
 
     @property
     def native_value(self) -> str | None:
-        """Return RCA text value."""
+        """Return legal term text value."""
 
-        value = get_legal_value(self._vehicle, LEGAL_TYPE_RCA, self._field)
+        value = get_legal_value(self._vehicle, self._legal_type, self._field)
         return str(value) if value is not None else ""
 
     async def async_set_value(self, value: str) -> None:
-        """Set and persist RCA text value."""
+        """Set and persist legal term text value."""
 
         vehicles = self._get_vehicles_for_update()
 
         for vehicle in vehicles:
             if vehicle["vehicle_id"] == self._vehicle_id:
-                set_legal_value(vehicle, LEGAL_TYPE_RCA, self._field, value)
+                set_legal_value(vehicle, self._legal_type, self._field, value)
                 break
 
         await self._persist_vehicles(vehicles)

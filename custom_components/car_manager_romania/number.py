@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from homeassistant.components.number import NumberEntity
@@ -120,7 +121,7 @@ class VehicleBaseNumber(NumberEntity):
         and overwrite fields previously edited from other entities.
         """
 
-        return [dict(vehicle) for vehicle in self._entry.runtime_data.vehicles]
+        return deepcopy(self._entry.runtime_data.vehicles)
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in Home Assistant storage and update runtime data."""
