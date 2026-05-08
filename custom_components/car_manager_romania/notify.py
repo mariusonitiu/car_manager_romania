@@ -14,7 +14,11 @@ from .const import (
     MAINTENANCE_STATUS_SOON,
     MAINTENANCE_STATUS_UNKNOWN,
     MAINTENANCE_TYPES,
+    LEGAL_STATUS_EXPIRED,
+    LEGAL_STATUS_SOON,
+    LEGAL_TYPE_RCA,
 )
+from .legal import legal_days_remaining, legal_status
 from .maintenance import maintenance_remaining_values, maintenance_status
 from .storage import CarManagerNotificationStore
 
@@ -61,11 +65,41 @@ def _build_message(
     return "\n".join(parts)
 
 
+def _build_legal_message(
+    vehicle: dict,
+    label: str,
+    status: str,
+    days_remaining: int | None,
+) -> str:
+    """Build legal term notification message."""
+
+    vehicle_name = _vehicle_label(vehicle)
+    parts = [f"{label} pentru {vehicle_name}: {status}."]
+
+    if days_remaining is not None:
+        parts.append(f"Zile rămase: {days_remaining} zile.")
+
+    return "\n".join(parts)
+
+
+def _legal_notification_key(vehicle_id: str, legal_type: str) -> str:
+    """Return storage notification key for a legal term."""
+
+    return f"{vehicle_id}:legal:{legal_type}"
+
+
+def _legal_notification_id(vehicle_id: str, legal_type: str) -> str:
+    """Return persistent notification ID for a legal term."""
+
+    safe_vehicle_id = vehicle_id.replace(".", "_").replace("/", "_")
+    return f"car_manager_romania_{safe_vehicle_id}_legal_{legal_type}"
+
+
 async def async_check_maintenance_notifications(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> None:
-    """Create persistent notifications for soon/overdue maintenance."""
+    """Create persistent notifications for soon/overdue maintenance and legal terms."""
 
     store = CarManagerNotificationStore(hass)
 
@@ -108,3 +142,30 @@ async def async_check_maintenance_notifications(
             )
 
             await store.async_set_notified_status(key, status)
+
+        rca_status = legal_status(vehicle, LEGAL_TYPE_RCA)
+        rca_key = _legal_notification_key(vehicle_id, LEGAL_TYPE_RCA)
+        rca_notification_id = _legal_notification_id(vehicle_id, LEGAL_TYPE_RCA)
+
+        if rca_status not in (LEGAL_STATUS_SOON, LEGAL_STATUS_EXPIRED):
+            await store.async_clear_notified_status(rca_key)
+            persistent_notification.async_dismiss(hass, rca_notification_id)
+            continue
+
+        already_notified_rca_status = await store.async_get_notified_status(rca_key)
+        if already_notified_rca_status == rca_status:
+            continue
+
+        persistent_notification.async_create(
+            hass,
+            _build_legal_message(
+                vehicle,
+                "RCA",
+                rca_status,
+                legal_days_remaining(vehicle, LEGAL_TYPE_RCA),
+            ),
+            title="Car Manager România",
+            notification_id=rca_notification_id,
+        )
+
+        await store.async_set_notified_status(rca_key, rca_status)

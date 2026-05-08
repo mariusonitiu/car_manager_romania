@@ -16,6 +16,9 @@ from .const import (
     ATTR_INTEGRATION_VERSION,
     CONF_KM,
     CONF_LICENSE_PLATE,
+    LEGAL_END_DATE,
+    LEGAL_START_DATE,
+    LEGAL_TYPE_RCA,
     CONF_NAME,
     CONF_VIN,
     DOMAIN,
@@ -28,6 +31,7 @@ from .const import (
     MAINTENANCE_TYPE_SERVICE,
     VERSION,
 )
+from .legal import legal_days_remaining, legal_status, get_legal_value
 from .maintenance import (
     calculate_days_remaining,
     calculate_km_remaining,
@@ -80,6 +84,13 @@ async def async_setup_entry(
                     label,
                 )
             )
+
+        entities.extend(
+            [
+                CarVehicleRcaDaysRemainingSensor(entry, vehicle),
+                CarVehicleRcaStatusSensor(entry, vehicle),
+            ]
+        )
 
     async_add_entities(entities)
 
@@ -447,3 +458,68 @@ class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
             self._km_remaining(),
             self._days_remaining(),
         )
+
+class CarVehicleRcaDaysRemainingSensor(CarVehicleBaseSensor):
+    """RCA remaining days sensor."""
+
+    _attr_name = "Zile rămase până la RCA"
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize RCA remaining days sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_days_remaining"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return remaining days until RCA expiration."""
+
+        return legal_days_remaining(self._vehicle, LEGAL_TYPE_RCA)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return RCA date attributes."""
+
+        return {
+            "incepe_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_START_DATE),
+            "expira_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_END_DATE),
+        }
+
+
+class CarVehicleRcaStatusSensor(CarVehicleBaseSensor):
+    """RCA status sensor."""
+
+    _attr_name = "Status RCA"
+    _attr_icon = "mdi:shield-car"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize RCA status sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_status"
+
+    @property
+    def native_value(self) -> str:
+        """Return calculated RCA status."""
+
+        return legal_status(self._vehicle, LEGAL_TYPE_RCA)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return RCA attributes without external lookups."""
+
+        return {
+            "incepe_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_START_DATE),
+            "expira_la": get_legal_value(self._vehicle, LEGAL_TYPE_RCA, LEGAL_END_DATE),
+            "zile_ramase": legal_days_remaining(self._vehicle, LEGAL_TYPE_RCA),
+        }

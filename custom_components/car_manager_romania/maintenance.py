@@ -9,6 +9,7 @@ from typing import Any
 from .const import (
     CONF_CONSUMABLES,
     CONF_LAST_SERVICE_DATE,
+    CONF_LEGAL_TERMS,
     CONF_LAST_SERVICE_KM,
     CONF_SERVICE_INTERVAL_DAYS,
     CONF_SERVICE_INTERVAL_KM,
@@ -27,6 +28,7 @@ from .const import (
     MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
     MAINTENANCE_TYPES,
+    LEGAL_TYPES,
 )
 
 
@@ -199,6 +201,18 @@ def normalize_vehicle(vehicle: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     for consumable_key, default_value in DEFAULT_CONSUMABLE_VALUES.items():
         if consumable_key not in normalized[CONF_CONSUMABLES]:
             normalized[CONF_CONSUMABLES][consumable_key] = default_value
+            changed = True
+
+
+    if CONF_LEGAL_TERMS not in normalized or not isinstance(normalized[CONF_LEGAL_TERMS], dict):
+        normalized[CONF_LEGAL_TERMS] = {}
+        changed = True
+
+    for legal_type in LEGAL_TYPES:
+        if legal_type not in normalized[CONF_LEGAL_TERMS] or not isinstance(
+            normalized[CONF_LEGAL_TERMS][legal_type], dict
+        ):
+            normalized[CONF_LEGAL_TERMS][legal_type] = {}
             changed = True
 
     return normalized, changed

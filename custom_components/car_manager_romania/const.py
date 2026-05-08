@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.5.1"
+VERSION = "0.6.4"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -128,6 +128,9 @@ DEFAULT_CONSUMABLE_VALUES: dict[str, str] = {
 STORAGE_KEY_NOTIFICATIONS = f"{DOMAIN}_notifications"
 STORAGE_VERSION_NOTIFICATIONS = 1
 
+STORAGE_KEY_VEHICLES = f"{DOMAIN}_vehicles"
+STORAGE_VERSION_VEHICLES = 1
+
 # Modul intern e-rovinieta.ro.
 CONF_ROVINIETA_USERNAME = "rovinieta_username"
 CONF_ROVINIETA_PASSWORD = "rovinieta_password"
@@ -135,3 +138,35 @@ CONF_ROVINIETA_SCAN_INTERVAL = "rovinieta_scan_interval"
 
 DEFAULT_ROVINIETA_SCAN_INTERVAL = 6 * 60 * 60
 MIN_ROVINIETA_SCAN_INTERVAL = 15 * 60
+
+
+# Termene legale gestionate manual.
+# RCA, ITP și alte termene legale sunt separate de mentenanța mecanică.
+CONF_LEGAL_TERMS = "legal_terms"
+
+LEGAL_TYPE_RCA = "rca"
+
+LEGAL_TYPES: dict[str, str] = {
+    LEGAL_TYPE_RCA: "RCA",
+}
+
+LEGAL_START_DATE = "start_date"
+LEGAL_END_DATE = "end_date"
+
+LEGAL_STATUS_UNKNOWN = "neconfigurat"
+LEGAL_STATUS_VALID = "valid"
+LEGAL_STATUS_SOON = "expiră în curând"
+LEGAL_STATUS_EXPIRED = "expirat"
+
+LEGAL_SOON_DAYS_THRESHOLD = 30
+
+# Câmpuri RCA introduse manual. Nu se interoghează AIDA/BAAR și nu se face scraping.
+RCA_INSURER = "insurer"
+RCA_POLICY_NUMBER = "policy_number"
+RCA_NOTES = "notes"
+
+RCA_TEXT_FIELDS: dict[str, str] = {
+    RCA_INSURER: "RCA - asigurător",
+    RCA_POLICY_NUMBER: "RCA - număr poliță",
+    RCA_NOTES: "RCA - observații",
+}

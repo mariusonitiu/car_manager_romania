@@ -8,10 +8,16 @@ from homeassistant.components.text import TextEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from .device import build_vehicle_device_info
 
 from . import CarManagerConfigEntry
-from .const import CONF_CONSUMABLES, CONF_VEHICLES, CONSUMABLE_TYPES, DOMAIN
+from .const import (
+    CONF_CONSUMABLES,
+    CONSUMABLE_TYPES,
+    LEGAL_TYPE_RCA,
+    RCA_TEXT_FIELDS,
+)
+from .device import build_vehicle_device_info
+from .legal import get_legal_value, set_legal_value
 
 
 async def async_setup_entry(
@@ -35,13 +41,71 @@ async def async_setup_entry(
                 )
             )
 
+        for field, label in RCA_TEXT_FIELDS.items():
+            entities.append(
+                VehicleRcaText(
+                    hass,
+                    entry,
+                    vehicle,
+                    field,
+                    label,
+                )
+            )
+
     async_add_entities(entities)
 
 
-class VehicleConsumableText(TextEntity):
-    """Editable vehicle consumable/specification text."""
+class VehicleBaseText(TextEntity):
+    """Base text entity for vehicle values."""
 
     _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize base vehicle text."""
+
+        self._hass = hass
+        self._entry = entry
+        self._vehicle = vehicle
+        self._vehicle_id = vehicle["vehicle_id"]
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return vehicle device information."""
+
+        return build_vehicle_device_info(self._vehicle)
+
+    def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
+        """Return the current runtime vehicles for safe incremental updates.
+
+        Values edited from entities are persisted in Home Assistant storage, not in
+        config_entry.options. Using entry.options here can reload stale vehicle data
+        and overwrite fields previously edited from other entities.
+        """
+
+        return [dict(vehicle) for vehicle in self._entry.runtime_data.vehicles]
+
+    async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
+        """Persist vehicles in Home Assistant storage and refresh runtime data."""
+
+        await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
+
+        self._entry.runtime_data.vehicles = list(vehicles)
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                self._vehicle = vehicle
+                break
+
+        self.async_write_ha_state()
+
+
+class VehicleConsumableText(VehicleBaseText):
+    """Editable vehicle consumable/specification text."""
+
     _attr_icon = "mdi:car-wrench"
 
     def __init__(
@@ -54,10 +118,7 @@ class VehicleConsumableText(TextEntity):
     ) -> None:
         """Initialize consumable text entity."""
 
-        self._hass = hass
-        self._entry = entry
-        self._vehicle = vehicle
-        self._vehicle_id = vehicle["vehicle_id"]
+        super().__init__(hass, entry, vehicle)
         self._consumable_key = consumable_key
 
         self._attr_name = label
@@ -70,43 +131,57 @@ class VehicleConsumableText(TextEntity):
         """Return consumable value."""
 
         consumables = self._vehicle.get(CONF_CONSUMABLES, {})
-        value = consumables.get(self._consumable_key)
+        value = consumables.get(self._consumable_key) if isinstance(consumables, dict) else ""
         return str(value) if value is not None else ""
 
     async def async_set_value(self, value: str) -> None:
         """Set and persist consumable value."""
 
-        vehicles = list(
-            self._entry.options.get(
-                CONF_VEHICLES,
-                self._entry.runtime_data.vehicles,
-            )
-        )
+        vehicles = self._get_vehicles_for_update()
 
         for vehicle in vehicles:
             if vehicle["vehicle_id"] == self._vehicle_id:
                 vehicle.setdefault(CONF_CONSUMABLES, {})[self._consumable_key] = value
                 break
 
-        self._hass.config_entries.async_update_entry(
-            self._entry,
-            options={
-                **dict(self._entry.options),
-                CONF_VEHICLES: vehicles,
-            },
-        )
-        self._entry.runtime_data.vehicles = list(vehicles)
-        for vehicle in vehicles:
-            if vehicle["vehicle_id"] == self._vehicle_id:
-                self._vehicle = vehicle
-                break
+        await self._persist_vehicles(vehicles)
 
-        self.async_write_ha_state()
+
+class VehicleRcaText(VehicleBaseText):
+    """Editable RCA text field."""
+
+    _attr_icon = "mdi:shield-car"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+        field: str,
+        label: str,
+    ) -> None:
+        """Initialize RCA text entity."""
+
+        super().__init__(hass, entry, vehicle)
+        self._field = field
+        self._attr_name = label
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_rca_{field}"
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return vehicle device information."""
+    def native_value(self) -> str | None:
+        """Return RCA text value."""
 
-        return build_vehicle_device_info(
-            self._vehicle,
-        )
+        value = get_legal_value(self._vehicle, LEGAL_TYPE_RCA, self._field)
+        return str(value) if value is not None else ""
+
+    async def async_set_value(self, value: str) -> None:
+        """Set and persist RCA text value."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                set_legal_value(vehicle, LEGAL_TYPE_RCA, self._field, value)
+                break
+
+        await self._persist_vehicles(vehicles)

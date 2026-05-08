@@ -22,6 +22,7 @@ from .const import (
 from .maintenance import normalize_vehicles
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
+from .storage import CarManagerVehicleStore, merge_vehicle_sources
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class CarManagerRuntimeData:
 
     integration_version: str
     vehicles: list[dict[str, Any]]
+    vehicle_store: CarManagerVehicleStore
     rovinieta_coordinator: CarManagerRovinietaCoordinator | None = None
 
 
@@ -44,26 +46,25 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Car Manager România from a config entry."""
 
-    vehicles = entry.options.get(
+    vehicle_store = CarManagerVehicleStore(hass)
+    stored_vehicles = await vehicle_store.async_get_vehicles()
+
+    option_vehicles = entry.options.get(
         CONF_VEHICLES,
         entry.data.get(CONF_VEHICLES, []),
     )
+    vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
     normalized_vehicles, changed = normalize_vehicles(list(vehicles))
 
-    if changed:
-        hass.config_entries.async_update_entry(
-            entry,
-            options={
-                **dict(entry.options),
-                CONF_VEHICLES: normalized_vehicles,
-            },
-        )
+    if changed or normalized_vehicles != stored_vehicles:
+        await vehicle_store.async_save_vehicles(normalized_vehicles)
 
     rovinieta_coordinator = await _async_setup_rovinieta_coordinator(hass, entry)
 
     entry.runtime_data = CarManagerRuntimeData(
         integration_version=VERSION,
         vehicles=normalized_vehicles,
+        vehicle_store=vehicle_store,
         rovinieta_coordinator=rovinieta_coordinator,
     )
 

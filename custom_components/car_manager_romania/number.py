@@ -13,7 +13,6 @@ from .device import build_vehicle_device_info
 from . import CarManagerConfigEntry
 from .const import (
     CONF_KM,
-    CONF_VEHICLES,
     DOMAIN,
     MAINTENANCE_INTERVAL_DAYS,
     MAINTENANCE_INTERVAL_KM,
@@ -114,25 +113,19 @@ class VehicleBaseNumber(NumberEntity):
         )
 
     def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Return vehicles from options or runtime data."""
+        """Return the current runtime vehicles for safe incremental updates.
 
-        return list(
-            self._entry.options.get(
-                CONF_VEHICLES,
-                self._entry.runtime_data.vehicles,
-            )
-        )
+        Values edited from entities are persisted in Home Assistant storage, not in
+        config_entry.options. Using entry.options here can reload stale vehicle data
+        and overwrite fields previously edited from other entities.
+        """
 
-    def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        """Persist vehicles in config entry options and update runtime data."""
+        return [dict(vehicle) for vehicle in self._entry.runtime_data.vehicles]
 
-        self._hass.config_entries.async_update_entry(
-            self._entry,
-            options={
-                **dict(self._entry.options),
-                CONF_VEHICLES: vehicles,
-            },
-        )
+    async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
+        """Persist vehicles in Home Assistant storage and update runtime data."""
+
+        await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
 
         self._entry.runtime_data.vehicles = list(vehicles)
         for vehicle in vehicles:
@@ -178,7 +171,7 @@ class VehicleKmNumber(VehicleBaseNumber):
                 vehicle[CONF_KM] = int(value)
                 break
 
-        self._persist_vehicles(vehicles)
+        await self._persist_vehicles(vehicles)
 
 
 class VehicleMaintenanceNumber(VehicleBaseNumber):
@@ -247,4 +240,4 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
                 )
                 break
 
-        self._persist_vehicles(vehicles)
+        await self._persist_vehicles(vehicles)

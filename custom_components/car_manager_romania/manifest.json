@@ -1,12 +1,14 @@
 {
   "domain": "car_manager_romania",
   "name": "Car Manager România",
-  "codeowners": ["@mariusonitiu"],
+  "codeowners": [
+    "@mariusonitiu"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/mariusonitiu/car_manager_romania",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/mariusonitiu/car_manager_romania/issues",
   "requirements": [],
-  "version": "0.5.1"
+  "version": "0.6.4"
 }
