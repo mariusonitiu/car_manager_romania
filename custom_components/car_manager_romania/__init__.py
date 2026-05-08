@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     CONF_ROVINIETA_PASSWORD,
@@ -75,6 +77,24 @@ async def async_setup_entry(
     from .notify import async_check_maintenance_notifications
 
     await async_check_maintenance_notifications(hass, entry)
+
+    def _schedule_notification_check(*_: Any) -> None:
+        """Schedule a notification check without blocking Home Assistant."""
+
+        hass.async_create_task(async_check_maintenance_notifications(hass, entry))
+
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            _schedule_notification_check,
+            timedelta(hours=6),
+        )
+    )
+
+    if rovinieta_coordinator is not None:
+        entry.async_on_unload(
+            rovinieta_coordinator.async_add_listener(_schedule_notification_check)
+        )
 
     return True
 

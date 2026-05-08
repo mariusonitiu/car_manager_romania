@@ -136,6 +136,12 @@ class VehicleBaseNumber(NumberEntity):
 
         self.async_write_ha_state()
 
+        from .notify import async_check_maintenance_notifications
+
+        self._hass.async_create_task(
+            async_check_maintenance_notifications(self._hass, self._entry)
+        )
+
 
 class VehicleKmNumber(VehicleBaseNumber):
     """Editable current vehicle kilometers."""
