@@ -296,7 +296,49 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         if self._vehicle.get(CONF_VIN):
             attributes[CONF_VIN] = self._vehicle[CONF_VIN]
 
+        records = getattr(self._entry.runtime_data.service_history_store, "_records", [])
+        vehicle_records: list[dict[str, Any]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            if str(record.get(CONF_VEHICLE_ID, "")) != self._vehicle_id:
+                continue
+            vehicle_records.append(
+                {
+                    "record_id": record.get("record_id", ""),
+                    "record_type": record.get("record_type", "custom"),
+                    "record_type_label": _service_history_type_label(str(record.get("record_type", "custom"))),
+                    "date": record.get("date", ""),
+                    CONF_KM: record.get(CONF_KM, 0),
+                    "title": record.get("title", ""),
+                    "service_name": record.get("service_name", ""),
+                    "cost": record.get("cost", 0),
+                    "invoice_number": record.get("invoice_number", ""),
+                    "notes": record.get("notes", ""),
+                    "update_maintenance": bool(record.get("update_maintenance", False)),
+                    "restored": bool(record.get("restored", False)),
+                    "restored_at": record.get("restored_at", ""),
+                }
+            )
+
+        vehicle_records.sort(key=lambda item: str(item.get("date", "")), reverse=True)
+        attributes["service_history"] = vehicle_records[:10]
+
         return attributes
+
+
+def _service_history_type_label(record_type: str) -> str:
+    """Return a human label for a service history record type."""
+
+    if record_type in MAINTENANCE_TYPES:
+        return MAINTENANCE_TYPES[record_type]
+
+    return {
+        "rca": "RCA",
+        "itp": "ITP",
+        "rovinieta": "Rovinietă",
+        "custom": "Altă intervenție",
+    }.get(record_type, record_type or "Intervenție")
 
 
 class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):

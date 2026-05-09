@@ -811,8 +811,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         await history_store.async_add_record(record)
 
-        if update_maintenance and record_type in MAINTENANCE_TYPES:
-            await hass.config_entries.async_reload(entry.entry_id)
+        await hass.config_entries.async_reload(entry.entry_id)
 
         _LOGGER.info(
             "Intervenție adăugată în istoricul Car Manager România: %s pentru %s",
@@ -945,6 +944,7 @@ async def async_setup_entry(
 
     vehicle_store = CarManagerVehicleStore(hass)
     service_history_store = CarManagerServiceHistoryStore(hass)
+    await service_history_store.async_load()
     stored_vehicles = await vehicle_store.async_get_vehicles()
 
     option_vehicles = entry.options.get(

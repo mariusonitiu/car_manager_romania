@@ -18,6 +18,10 @@ class CarManagerRomaniaCard extends HTMLElement {
       vin: "",
       km: "0",
     };
+    this._serviceFormOpen = this._serviceFormOpen || new Set();
+    this._serviceRecordDrafts = this._serviceRecordDrafts || {};
+    this._serviceRecordBusy = this._serviceRecordBusy || null;
+    this._serviceRecordMessage = this._serviceRecordMessage || {};
     this._inputEditing = this._inputEditing || false;
   }
 
@@ -248,7 +252,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${expanded ? "Ascunde detalii" : "Detalii"}
         </button>
       </div>
-      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderConsumables(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
+      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
     `;
   }
 
@@ -308,6 +312,146 @@ class CarManagerRomaniaCard extends HTMLElement {
 
     if (!rows) return "";
     return `<div class="cmr-section cmr-spec-section"><div class="cmr-section-title">Consumabile și specificații</div>${rows}</div>`;
+  }
+
+  _renderServiceHistory(vehicle) {
+    const statusEntity = vehicle.entities.find((entity) => {
+      const attrs = entity.stateObj?.attributes || {};
+      return entity.entityId.startsWith("sensor.") && Array.isArray(attrs.service_history);
+    });
+    const records = statusEntity?.stateObj?.attributes?.service_history || [];
+    const vehicleKey = vehicle.vehicle_id || vehicle.key;
+    const open = this._serviceFormOpen.has(vehicleKey);
+    const message = this._serviceRecordMessage[vehicleKey] || "";
+
+    const rows = records.length
+      ? records.slice(0, 5).map((record) => this._renderServiceHistoryRow(record, vehicleKey)).join("")
+      : `<div class="cmr-history-empty">Nu există intervenții salvate încă.</div>`;
+
+    return `
+      <div class="cmr-section cmr-history-section">
+        <div class="cmr-section-head">
+          <div class="cmr-section-title">Istoric intervenții</div>
+          <button class="cmr-mini-action" data-action="toggle-service-form" data-vehicle="${this._escape(vehicleKey)}">
+            ${open ? "Închide" : "Adaugă"}
+          </button>
+        </div>
+        ${open ? this._renderServiceRecordForm(vehicle) : ""}
+        ${message ? `<div class="cmr-message">${this._escape(message)}</div>` : ""}
+        <div class="cmr-history-list">${rows}</div>
+      </div>
+    `;
+  }
+
+  _renderServiceHistoryRow(record, vehicleKey) {
+    const recordId = record.record_id || "";
+    const title = record.title || record.record_type_label || this._recordTypeLabel(record.record_type);
+    const meta = [
+      record.date || "fără dată",
+      record.km ? `${record.km} km` : "",
+      record.service_name || "",
+      record.cost ? `${record.cost} lei` : "",
+    ].filter(Boolean).join(" · ");
+    const restored = record.restored ? `<span class="cmr-history-badge">restaurată</span>` : "";
+    const canRestore = recordId && record.update_maintenance && !record.restored;
+
+    return `
+      <div class="cmr-history-row">
+        <div class="cmr-history-main">
+          <div class="cmr-history-title">${this._escape(title)} ${restored}</div>
+          <div class="cmr-row-muted">${this._escape(meta || this._recordTypeLabel(record.record_type))}</div>
+          ${record.notes ? `<div class="cmr-history-notes">${this._escape(record.notes)}</div>` : ""}
+        </div>
+        ${canRestore ? `<button class="cmr-mini-action cmr-secondary" data-action="restore-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}">Restore</button>` : ""}
+      </div>
+    `;
+  }
+
+  _renderServiceRecordForm(vehicle) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key;
+    const draft = this._serviceRecordDrafts[vehicleKey] || {};
+    const summary = this._extractSummary(vehicle);
+    const today = new Date().toISOString().slice(0, 10);
+    const busy = this._serviceRecordBusy === vehicleKey;
+    const km = draft.km ?? (summary.km && summary.km !== "—" ? summary.km : "0");
+
+    return `
+      <form class="cmr-service-form" data-form="service-record" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.vin || vehicle.plate || vehicle.label)}">
+        <div class="cmr-service-grid">
+          <label class="cmr-field">
+            <span>Tip intervenție</span>
+            <select name="record_type">
+              ${this._recordTypeOptions(draft.record_type || "service")}
+            </select>
+          </label>
+          <label class="cmr-field">
+            <span>Data</span>
+            <input type="date" name="date" value="${this._escape(draft.date || today)}">
+          </label>
+          <label class="cmr-field">
+            <span>Kilometraj</span>
+            <input type="number" name="km" min="0" step="1" value="${this._escape(km)}">
+          </label>
+          <label class="cmr-field">
+            <span>Cost</span>
+            <input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}">
+          </label>
+          <label class="cmr-field cmr-service-wide">
+            <span>Titlu</span>
+            <input type="text" name="title" placeholder="ex. Schimb ulei și filtre" value="${this._escape(draft.title || "")}">
+          </label>
+          <label class="cmr-field">
+            <span>Service / furnizor</span>
+            <input type="text" name="service_name" value="${this._escape(draft.service_name || "")}">
+          </label>
+          <label class="cmr-field">
+            <span>Nr. document</span>
+            <input type="text" name="invoice_number" value="${this._escape(draft.invoice_number || "")}">
+          </label>
+          <label class="cmr-field cmr-service-wide">
+            <span>Observații</span>
+            <textarea name="notes" rows="2">${this._escape(draft.notes || "")}</textarea>
+          </label>
+        </div>
+        <label class="cmr-check">
+          <input type="checkbox" name="update_maintenance" ${draft.update_maintenance === false ? "" : "checked"}>
+          <span>Actualizează automat mentenanța pentru tipurile mecanice</span>
+        </label>
+        <div class="cmr-add-actions">
+          <button class="cmr-action" type="submit" ${busy ? "disabled" : ""}>${busy ? "Se salvează..." : "Salvează intervenția"}</button>
+        </div>
+      </form>
+    `;
+  }
+
+  _recordTypeOptions(selected) {
+    const options = [
+      ["service", "Revizie generală"],
+      ["gearbox_oil", "Ulei cutie viteze"],
+      ["timing_belt", "Distribuție"],
+      ["brake_fluid", "Lichid frână"],
+      ["coolant", "Lichid antigel"],
+      ["rca", "RCA"],
+      ["itp", "ITP"],
+      ["rovinieta", "Rovinietă"],
+      ["custom", "Altă intervenție"],
+    ];
+    return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  _recordTypeLabel(value) {
+    const labels = {
+      service: "Revizie generală",
+      gearbox_oil: "Ulei cutie viteze",
+      timing_belt: "Distribuție",
+      brake_fluid: "Lichid frână",
+      coolant: "Lichid antigel",
+      rca: "RCA",
+      itp: "ITP",
+      rovinieta: "Rovinietă",
+      custom: "Altă intervenție",
+    };
+    return labels[value] || value || "Intervenție";
   }
 
   _renderRovinietaDetails(vehicle) {
@@ -551,6 +695,33 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
+    this.querySelectorAll('button[data-action="toggle-service-form"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.vehicle;
+        if (this._serviceFormOpen.has(key)) {
+          this._serviceFormOpen.delete(key);
+        } else {
+          this._serviceFormOpen.add(key);
+        }
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="service-record"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureServiceRecordDraft(form);
+        this._inputEditing = false;
+        this._addServiceRecord(form);
+      });
+      form.addEventListener("input", () => this._captureServiceRecordDraft(form));
+      form.addEventListener("change", () => this._captureServiceRecordDraft(form));
+    });
+
+    this.querySelectorAll('button[data-action="restore-service-record"]').forEach((button) => {
+      button.addEventListener("click", () => this._restoreServiceRecord(button.dataset.recordId, button.dataset.vehicle));
+    });
+
     this.querySelectorAll('button[data-action="remove-vehicle"]').forEach((button) => {
       button.addEventListener("click", () => {
         this._removeVehicle(button.dataset.vehicleId, button.dataset.vehicleName || "autovehiculul selectat", {
@@ -568,7 +739,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
-    this.querySelectorAll("input").forEach((input) => {
+    this.querySelectorAll("input, textarea, select").forEach((input) => {
       input.addEventListener("focusin", () => {
         this._inputEditing = true;
       });
@@ -616,6 +787,85 @@ class CarManagerRomaniaCard extends HTMLElement {
       vin: (data.get("vin") || "").toString(),
       km: (data.get("km") || "0").toString(),
     };
+  }
+
+  _captureServiceRecordDraft(form) {
+    if (!form) return;
+    const vehicleKey = form.dataset.vehicle;
+    const data = new FormData(form);
+    this._serviceRecordDrafts[vehicleKey] = {
+      record_type: (data.get("record_type") || "service").toString(),
+      date: (data.get("date") || "").toString(),
+      km: (data.get("km") || "0").toString(),
+      title: (data.get("title") || "").toString(),
+      service_name: (data.get("service_name") || "").toString(),
+      cost: (data.get("cost") || "0").toString(),
+      invoice_number: (data.get("invoice_number") || "").toString(),
+      notes: (data.get("notes") || "").toString(),
+      update_maintenance: data.get("update_maintenance") === "on",
+    };
+  }
+
+  async _addServiceRecord(form) {
+    if (!this._hass || !form) return;
+
+    const vehicleKey = form.dataset.vehicle;
+    if (this._serviceRecordBusy) return;
+
+    const data = new FormData(form);
+    const payload = {
+      vehicle_id: form.dataset.vehicleRef || vehicleKey,
+      record_type: (data.get("record_type") || "custom").toString(),
+      date: (data.get("date") || "").toString(),
+      km: Math.round(Number(data.get("km") || 0)),
+      title: (data.get("title") || "").toString().trim(),
+      service_name: (data.get("service_name") || "").toString().trim(),
+      cost: Number(data.get("cost") || 0),
+      invoice_number: (data.get("invoice_number") || "").toString().trim(),
+      notes: (data.get("notes") || "").toString().trim(),
+      update_maintenance: data.get("update_maintenance") === "on",
+    };
+
+    if (!payload.title) payload.title = this._recordTypeLabel(payload.record_type);
+    if (!Number.isFinite(payload.km) || payload.km < 0) payload.km = 0;
+    if (!Number.isFinite(payload.cost) || payload.cost < 0) payload.cost = 0;
+
+    this._serviceRecordBusy = vehicleKey;
+    this._serviceRecordMessage[vehicleKey] = "";
+    this.render();
+
+    try {
+      await this._hass.callService("car_manager_romania", "add_service_record", payload);
+      this._serviceRecordMessage[vehicleKey] = "Intervenția a fost salvată. Integrarea se reîncarcă pentru actualizare.";
+      this._serviceRecordDrafts[vehicleKey] = {};
+      this._serviceFormOpen.delete(vehicleKey);
+    } catch (error) {
+      this._serviceRecordMessage[vehicleKey] = error?.message || "Nu am putut salva intervenția.";
+    } finally {
+      this._serviceRecordBusy = null;
+      this.render();
+    }
+  }
+
+  async _restoreServiceRecord(recordId, vehicleKey) {
+    if (!this._hass || !recordId || this._serviceRecordBusy) return;
+
+    const confirmed = window.confirm("Revii la valorile anterioare acestei intervenții? Intervenția rămâne în istoric, dar va fi marcată ca restaurată.");
+    if (!confirmed) return;
+
+    this._serviceRecordBusy = vehicleKey || recordId;
+    if (vehicleKey) this._serviceRecordMessage[vehicleKey] = "";
+    this.render();
+
+    try {
+      await this._hass.callService("car_manager_romania", "restore_service_record", { record_id: recordId });
+      if (vehicleKey) this._serviceRecordMessage[vehicleKey] = "Restore efectuat. Integrarea se reîncarcă.";
+    } catch (error) {
+      if (vehicleKey) this._serviceRecordMessage[vehicleKey] = error?.message || "Nu am putut face restore.";
+    } finally {
+      this._serviceRecordBusy = null;
+      this.render();
+    }
   }
 
   async _addVehicle(form) {
@@ -1062,6 +1312,22 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-details-button { border: 0; border-radius: 999px; padding: 8px 16px; background: color-mix(in srgb, var(--primary-color) 16%, transparent); color: var(--primary-text-color); font-weight: 800; cursor: pointer; }
       .cmr-details { margin-top: 4px; }
       .cmr-section, .cmr-edit-group, .cmr-add-form { margin-top: 14px; padding: 12px; border-radius: 16px; background: color-mix(in srgb, var(--card-background-color) 92%, var(--primary-color) 8%); }
+      .cmr-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--divider-color); margin-bottom: 8px; }
+      .cmr-section-head .cmr-section-title { border-bottom: 0; margin-bottom: 0; }
+      .cmr-mini-action { border: 0; border-radius: 999px; padding: 5px 9px; color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); cursor: pointer; font-size: 11px; font-weight: 800; white-space: nowrap; }
+      .cmr-service-form { background: color-mix(in srgb, var(--card-background-color) 70%, transparent); border-radius: 14px; padding: 10px; margin: 8px 0 10px; }
+      .cmr-service-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+      .cmr-service-wide { grid-column: 1 / -1; }
+      .cmr-field textarea, .cmr-field select { box-sizing: border-box; width: 100%; min-width: 0; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); padding: 8px 10px; font: inherit; }
+      .cmr-check { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; }
+      .cmr-history-list { display: flex; flex-direction: column; gap: 8px; }
+      .cmr-history-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent); }
+      .cmr-history-row:first-child { border-top: 0; }
+      .cmr-history-main { min-width: 0; }
+      .cmr-history-title { font-weight: 800; font-size: 13px; }
+      .cmr-history-notes { color: var(--secondary-text-color); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
+      .cmr-history-empty { color: var(--secondary-text-color); font-size: 12px; padding: 6px 0; }
+      .cmr-history-badge { display: inline-block; margin-left: 5px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--warning-color) 20%, transparent); color: var(--primary-text-color); font-size: 10px; }
       .cmr-add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
       .cmr-add-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 0; border-top: 0; min-width: 0; }
       .cmr-add-field span { font-size: 12px; line-height: 1.2; }
@@ -1098,6 +1364,8 @@ class CarManagerRomaniaCard extends HTMLElement {
         .cmr-header-actions { width: 100%; justify-content: flex-start; }
         .cmr-add-grid { grid-template-columns: 1fr; }
         .cmr-field { grid-template-columns: 1fr; }
+        .cmr-service-grid { grid-template-columns: 1fr; }
+        .cmr-history-row { flex-direction: column; }
       }
       @media (max-width: 760px) {
         .cmr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
