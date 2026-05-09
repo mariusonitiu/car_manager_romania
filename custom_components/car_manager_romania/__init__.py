@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import date as dt_date, datetime, timedelta
 import inspect
+import json
 import logging
 from uuid import uuid4
 from typing import Any
@@ -44,6 +45,9 @@ from .const import (
     SERVICE_RESTORE_LAST_SERVICE_RECORD,
     SERVICE_DELETE_SERVICE_RECORD,
     SERVICE_UPDATE_SERVICE_RECORD,
+    SERVICE_EXPORT_DATA,
+    STORAGE_KEY_NOTIFICATIONS,
+    STORAGE_VERSION_NOTIFICATIONS,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
@@ -361,6 +365,14 @@ RESTORE_LAST_SERVICE_RECORD_SCHEMA = vol.Schema(
     }
 )
 
+EXPORT_DATA_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Optional("filename", default="car_manager_romania_backup.json"): str,
+    }
+)
+
+
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
@@ -564,6 +576,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_UPDATE_SERVICE_RECORD)
+        and hass.services.has_service(DOMAIN, SERVICE_EXPORT_DATA)
     ):
         return
 
@@ -965,6 +978,80 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         _LOGGER.info("Intervenție ștearsă din istoricul Car Manager România: %s", record_id)
 
+    async def async_export_data(call: ServiceCall) -> None:
+        """Export Car Manager România data to a local JSON backup file."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_store = entry.runtime_data.vehicle_store
+        history_store = entry.runtime_data.service_history_store
+
+        filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
+        if not filename:
+            filename = "car_manager_romania_backup.json"
+        if "/" in filename or "\\" in filename:
+            raise HomeAssistantError("Numele fișierului de backup nu trebuie să conțină cale sau directoare.")
+        if not filename.lower().endswith(".json"):
+            filename = f"{filename}.json"
+
+        stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        normalized_vehicles, _ = normalize_vehicles(list(vehicles))
+        service_history = await history_store.async_get_records()
+
+        notification_data: dict[str, Any] = {}
+        try:
+            from homeassistant.helpers.storage import Store
+
+            raw_notification_data = await Store(
+                hass,
+                STORAGE_VERSION_NOTIFICATIONS,
+                STORAGE_KEY_NOTIFICATIONS,
+            ).async_load()
+            if isinstance(raw_notification_data, dict):
+                notification_data = raw_notification_data
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Nu am putut include starea notificărilor în export: %s", err)
+
+        backup_data = {
+            "schema": "car_manager_romania_backup",
+            "schema_version": 1,
+            "exported_at": datetime.now().isoformat(timespec="seconds"),
+            "integration_version": VERSION,
+            "entry": {
+                "entry_id": entry.entry_id,
+                "title": entry.title,
+            },
+            "vehicles": normalized_vehicles,
+            "service_history": service_history,
+            "notification_state": notification_data,
+        }
+
+        backup_path = Path(hass.config.path(filename))
+        backup_json = json.dumps(backup_data, ensure_ascii=False, indent=2, default=str)
+
+        def _write_backup() -> None:
+            backup_path.write_text(backup_json, encoding="utf-8")
+
+        await hass.async_add_executor_job(_write_backup)
+
+        from homeassistant.components import persistent_notification
+
+        persistent_notification.async_create(
+            hass,
+            "Exportul Car Manager România a fost salvat local.\n\n"
+            f"Fișier: `{backup_path}`\n\n"
+            "Fișierul conține datele autovehiculelor, istoricul intervențiilor și starea notificărilor. "
+            "Păstrează-l în siguranță, deoarece poate include VIN, numere de înmatriculare și observații de service.",
+            title="Car Manager România - export date finalizat",
+            notification_id="car_manager_romania_export_data",
+        )
+
+        _LOGGER.info("Export Car Manager România salvat în %s", backup_path)
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -1027,6 +1114,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_RESTORE_LAST_SERVICE_RECORD,
             async_restore_last_service_record,
             schema=RESTORE_LAST_SERVICE_RECORD_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_EXPORT_DATA):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_EXPORT_DATA,
+            async_export_data,
+            schema=EXPORT_DATA_SERVICE_SCHEMA,
         )
     hass.data[DOMAIN]["services_registered"] = True
 

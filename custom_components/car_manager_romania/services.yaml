@@ -284,3 +284,22 @@ restore_last_service_record:
             - timing_belt
             - brake_fluid
             - coolant
+
+export_data:
+  name: Exportă datele
+  description: Salvează un backup JSON local cu autovehiculele, istoricul intervențiilor și starea notificărilor Car Manager România. Fișierul este salvat în /config, nu în /config/www, pentru a nu fi expus public.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    filename:
+      name: Nume fișier
+      description: Numele fișierului JSON care va fi salvat în /config. Nu introduce directoare sau cale completă.
+      required: false
+      default: car_manager_romania_backup.json
+      example: car_manager_romania_backup.json
+      selector:
+        text:
