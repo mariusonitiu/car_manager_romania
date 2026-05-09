@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from datetime import timedelta
+from datetime import date, timedelta
 import inspect
 import logging
+from uuid import uuid4
 from typing import Any
 
 import voluptuous as vol
@@ -38,13 +39,17 @@ from .const import (
     SERVICE_REMOVE_VEHICLE,
     SERVICE_RESTORE_VEHICLE,
     SERVICE_RESTORE_ALL_VEHICLES,
+    SERVICE_ADD_SERVICE_RECORD,
+    MAINTENANCE_LAST_DATE,
+    MAINTENANCE_LAST_KM,
+    MAINTENANCE_TYPES,
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
-from .maintenance import normalize_vehicles
+from .maintenance import normalize_vehicles, set_maintenance_value
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
-from .storage import CarManagerVehicleStore, merge_vehicle_sources
+from .storage import CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +65,7 @@ class CarManagerRuntimeData:
     vehicles: list[dict[str, Any]]
     all_vehicles: list[dict[str, Any]]
     vehicle_store: CarManagerVehicleStore
+    service_history_store: CarManagerServiceHistoryStore
     rovinieta_coordinator: CarManagerRovinietaCoordinator | None = None
 
 
@@ -301,6 +307,22 @@ RESTORE_ALL_VEHICLES_SERVICE_SCHEMA = vol.Schema(
     }
 )
 
+ADD_SERVICE_RECORD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("record_type"): vol.In(list(MAINTENANCE_TYPES.keys()) + ["rca", "itp", "rovinieta", "custom"]),
+        vol.Optional("date"): str,
+        vol.Optional(CONF_KM): vol.Coerce(int),
+        vol.Optional("title", default=""): str,
+        vol.Optional("service_name", default=""): str,
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("invoice_number", default=""): str,
+        vol.Optional("notes", default=""): str,
+        vol.Optional("update_maintenance", default=True): bool,
+    }
+)
+
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
@@ -355,6 +377,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_REMOVE_VEHICLE)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_VEHICLE)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_ALL_VEHICLES)
+        and hass.services.has_service(DOMAIN, SERVICE_ADD_SERVICE_RECORD)
     ):
         return
 
@@ -538,6 +561,89 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         await hass.config_entries.async_reload(entry.entry_id)
 
+    async def async_add_service_record(call: ServiceCall) -> None:
+        """Add a service/intervention history record from a Home Assistant service call."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_store = entry.runtime_data.vehicle_store
+        history_store = entry.runtime_data.service_history_store
+
+        vehicle_id = str(call.data[CONF_VEHICLE_ID]).strip()
+        if not vehicle_id:
+            raise HomeAssistantError("ID-ul intern al autovehiculului este obligatoriu.")
+
+        record_type = str(call.data["record_type"]).strip()
+        if not record_type:
+            raise HomeAssistantError("Tipul intervenției este obligatoriu.")
+
+        record_date = str(call.data.get("date") or date.today().isoformat()).strip()
+        try:
+            date.fromisoformat(record_date)
+        except ValueError as err:
+            raise HomeAssistantError("Data intervenției trebuie să fie în format YYYY-MM-DD.") from err
+
+        km_value = int(call.data.get(CONF_KM, 0) or 0)
+        if km_value < 0:
+            raise HomeAssistantError("Kilometrajul nu poate fi negativ.")
+
+        stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+
+        found_vehicle: dict[str, Any] | None = None
+        for vehicle in vehicles:
+            if not isinstance(vehicle, dict):
+                continue
+            if str(vehicle.get(CONF_VEHICLE_ID, "")) == vehicle_id:
+                found_vehicle = vehicle
+                break
+
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+
+        record = {
+            "record_id": f"rec_{uuid4().hex[:12]}",
+            CONF_VEHICLE_ID: vehicle_id,
+            "record_type": record_type,
+            "date": record_date,
+            CONF_KM: km_value,
+            "title": str(call.data.get("title", "")).strip(),
+            "service_name": str(call.data.get("service_name", "")).strip(),
+            "cost": float(call.data.get("cost", 0) or 0),
+            "invoice_number": str(call.data.get("invoice_number", "")).strip(),
+            "notes": str(call.data.get("notes", "")).strip(),
+        }
+        await history_store.async_add_record(record)
+
+        update_maintenance = bool(call.data.get("update_maintenance", True))
+        if update_maintenance and record_type in MAINTENANCE_TYPES:
+            set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_DATE, record_date)
+            if km_value > 0:
+                set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_KM, km_value)
+                if int(found_vehicle.get(CONF_KM, 0) or 0) < km_value:
+                    found_vehicle[CONF_KM] = km_value
+
+            normalized_vehicles, _ = normalize_vehicles(vehicles)
+            active_vehicles = _active_vehicles(normalized_vehicles)
+            await vehicle_store.async_save_vehicles(normalized_vehicles)
+            entry.runtime_data.vehicles = active_vehicles
+            entry.runtime_data.all_vehicles = normalized_vehicles
+            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+            from .notify import async_check_maintenance_notifications
+
+            hass.async_create_task(async_check_maintenance_notifications(hass, entry))
+            await hass.config_entries.async_reload(entry.entry_id)
+
+        _LOGGER.info(
+            "Intervenție adăugată în istoricul Car Manager România: %s pentru %s",
+            record_type,
+            vehicle_id,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -566,6 +672,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             async_restore_all_vehicles,
             schema=RESTORE_ALL_VEHICLES_SERVICE_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_ADD_SERVICE_RECORD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_SERVICE_RECORD,
+            async_add_service_record,
+            schema=ADD_SERVICE_RECORD_SCHEMA,
+        )
     hass.data[DOMAIN]["services_registered"] = True
 
 async def async_setup_entry(
@@ -575,6 +688,7 @@ async def async_setup_entry(
     """Set up Car Manager România from a config entry."""
 
     vehicle_store = CarManagerVehicleStore(hass)
+    service_history_store = CarManagerServiceHistoryStore(hass)
     stored_vehicles = await vehicle_store.async_get_vehicles()
 
     option_vehicles = entry.options.get(
@@ -595,6 +709,7 @@ async def async_setup_entry(
         vehicles=active_vehicles,
         all_vehicles=normalized_vehicles,
         vehicle_store=vehicle_store,
+        service_history_store=service_history_store,
         rovinieta_coordinator=rovinieta_coordinator,
     )
 

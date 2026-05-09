@@ -10,8 +10,10 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     STORAGE_KEY_NOTIFICATIONS,
+    STORAGE_KEY_SERVICE_HISTORY,
     STORAGE_KEY_VEHICLES,
     STORAGE_VERSION_NOTIFICATIONS,
+    STORAGE_VERSION_SERVICE_HISTORY,
     STORAGE_VERSION_VEHICLES,
 )
 
@@ -67,6 +69,59 @@ class CarManagerNotificationStore:
 
         self._data["notified"].pop(key, None)
         await self._store.async_save(self._data)
+
+
+class CarManagerServiceHistoryStore:
+    """Store service/intervention history records."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize service history store."""
+
+        self._store: Store = Store(
+            hass,
+            STORAGE_VERSION_SERVICE_HISTORY,
+            STORAGE_KEY_SERVICE_HISTORY,
+        )
+        self._records: list[dict[str, Any]] = []
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        """Load service history records."""
+
+        if self._loaded:
+            return
+
+        data = await self._store.async_load()
+        if isinstance(data, dict):
+            records = data.get("records")
+            if isinstance(records, list):
+                self._records = [
+                    deepcopy(record)
+                    for record in records
+                    if isinstance(record, dict)
+                ]
+
+        self._loaded = True
+
+    async def async_get_records(self) -> list[dict[str, Any]]:
+        """Return all stored service history records."""
+
+        await self.async_load()
+        return deepcopy(self._records)
+
+    async def async_save_records(self, records: list[dict[str, Any]]) -> None:
+        """Persist service history records."""
+
+        await self.async_load()
+        self._records = [deepcopy(record) for record in records if isinstance(record, dict)]
+        await self._store.async_save({"records": self._records})
+
+    async def async_add_record(self, record: dict[str, Any]) -> None:
+        """Append and persist a new service history record."""
+
+        await self.async_load()
+        self._records.append(deepcopy(record))
+        await self._store.async_save({"records": self._records})
 
 
 class CarManagerVehicleStore:

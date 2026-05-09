@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.8.4"
+VERSION = "0.8.5"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -19,6 +19,7 @@ SERVICE_ADD_VEHICLE = "add_vehicle"
 SERVICE_REMOVE_VEHICLE = "remove_vehicle"
 SERVICE_RESTORE_VEHICLE = "restore_vehicle"
 SERVICE_RESTORE_ALL_VEHICLES = "restore_all_vehicles"
+SERVICE_ADD_SERVICE_RECORD = "add_service_record"
 
 CONF_VEHICLE_ID = "vehicle_id"
 CONF_REMOVED = "removed"
@@ -140,6 +141,9 @@ STORAGE_VERSION_NOTIFICATIONS = 1
 
 STORAGE_KEY_VEHICLES = f"{DOMAIN}_vehicles"
 STORAGE_VERSION_VEHICLES = 1
+
+STORAGE_KEY_SERVICE_HISTORY = f"{DOMAIN}_service_history"
+STORAGE_VERSION_SERVICE_HISTORY = 1
 
 # Modul intern e-rovinieta.ro.
 CONF_ROVINIETA_USERNAME = "rovinieta_username"

@@ -68,3 +68,100 @@ restore_all_vehicles:
       required: false
       selector:
         text:
+
+add_service_record:
+  name: Adaugă intervenție în istoric
+  description: Salvează o intervenție în istoricul autovehiculului. Pentru tipurile de mentenanță mecanică poate actualiza automat ultima dată și ultimul kilometraj.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: ID intern autovehicul
+      description: ID-ul intern stabil al autovehiculului pentru care se adaugă intervenția.
+      required: true
+      example: sb01abc
+      selector:
+        text:
+    record_type:
+      name: Tip intervenție
+      description: Tipul intervenției. Pentru service, gearbox_oil, timing_belt, brake_fluid și coolant se pot actualiza automat datele de mentenanță.
+      required: true
+      example: service
+      selector:
+        select:
+          options:
+            - service
+            - gearbox_oil
+            - timing_belt
+            - brake_fluid
+            - coolant
+            - rca
+            - itp
+            - rovinieta
+            - custom
+    date:
+      name: Data intervenției
+      description: Data intervenției în format YYYY-MM-DD. Dacă lipsește, se folosește data curentă.
+      required: false
+      example: "2026-05-09"
+      selector:
+        date:
+    km:
+      name: Kilometraj
+      description: Kilometrajul la care s-a făcut intervenția.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+    title:
+      name: Titlu
+      description: Titlul scurt al intervenției.
+      required: false
+      example: Schimb ulei și filtre
+      selector:
+        text:
+    service_name:
+      name: Service / furnizor
+      description: Service-ul sau furnizorul unde s-a făcut intervenția.
+      required: false
+      selector:
+        text:
+    cost:
+      name: Cost
+      description: Costul intervenției.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 0.01
+          mode: box
+    invoice_number:
+      name: Număr factură / document
+      description: Număr factură, bon, deviz sau alt document justificativ.
+      required: false
+      selector:
+        text:
+    notes:
+      name: Observații
+      description: Observații despre intervenție.
+      required: false
+      selector:
+        text:
+          multiline: true
+    update_maintenance:
+      name: Actualizează mentenanța
+      description: Dacă este activ, pentru tipurile de mentenanță mecanică se actualizează automat ultima dată și ultimul kilometraj.
+      required: false
+      default: true
+      selector:
+        boolean:
