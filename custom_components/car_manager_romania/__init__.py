@@ -43,6 +43,7 @@ from .const import (
     SERVICE_RESTORE_SERVICE_RECORD,
     SERVICE_RESTORE_LAST_SERVICE_RECORD,
     SERVICE_DELETE_SERVICE_RECORD,
+    SERVICE_UPDATE_SERVICE_RECORD,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
@@ -340,6 +341,18 @@ DELETE_SERVICE_RECORD_SCHEMA = vol.Schema(
     }
 )
 
+UPDATE_SERVICE_RECORD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("record_id"): str,
+        vol.Optional("title"): str,
+        vol.Optional("service_name"): str,
+        vol.Optional("cost"): vol.Coerce(float),
+        vol.Optional("invoice_number"): str,
+        vol.Optional("notes"): str,
+    }
+)
+
 RESTORE_LAST_SERVICE_RECORD_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): str,
@@ -550,6 +563,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD)
+        and hass.services.has_service(DOMAIN, SERVICE_UPDATE_SERVICE_RECORD)
     ):
         return
 
@@ -894,6 +908,45 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         await _async_restore_service_record_snapshot(hass, entry, selected_record)
 
+    async def async_update_service_record(call: ServiceCall) -> None:
+        """Update safe informational fields for one service/intervention history record."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        history_store = entry.runtime_data.service_history_store
+
+        record_id = str(call.data["record_id"]).strip()
+        if not record_id:
+            raise HomeAssistantError("ID-ul intervenției este obligatoriu.")
+
+        existing_record = await history_store.async_get_record(record_id)
+        if existing_record is None:
+            raise HomeAssistantError("Intervenția selectată nu a fost găsită în istoric.")
+
+        changes: dict[str, Any] = {}
+        if "title" in call.data:
+            changes["title"] = str(call.data.get("title", "")).strip()
+        if "service_name" in call.data:
+            changes["service_name"] = str(call.data.get("service_name", "")).strip()
+        if "invoice_number" in call.data:
+            changes["invoice_number"] = str(call.data.get("invoice_number", "")).strip()
+        if "notes" in call.data:
+            changes["notes"] = str(call.data.get("notes", "")).strip()
+        if "cost" in call.data:
+            cost_value = float(call.data.get("cost", 0) or 0)
+            if cost_value < 0:
+                raise HomeAssistantError("Costul nu poate fi negativ.")
+            changes["cost"] = cost_value
+
+        if not changes:
+            raise HomeAssistantError("Nu există câmpuri de actualizat pentru intervenția selectată.")
+
+        changes["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+        await history_store.async_update_record(record_id, changes)
+        await hass.config_entries.async_reload(entry.entry_id)
+
+        _LOGGER.info("Intervenție actualizată în istoricul Car Manager România: %s", record_id)
+
     async def async_delete_service_record(call: ServiceCall) -> None:
         """Delete one service/intervention history record only."""
 
@@ -953,6 +1006,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_RESTORE_SERVICE_RECORD,
             async_restore_service_record,
             schema=RESTORE_SERVICE_RECORD_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_SERVICE_RECORD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UPDATE_SERVICE_RECORD,
+            async_update_service_record,
+            schema=UPDATE_SERVICE_RECORD_SCHEMA,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD):
         hass.services.async_register(

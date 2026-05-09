@@ -20,6 +20,10 @@ from .const import (
     LEGAL_END_DATE,
     LEGAL_START_DATE,
     LEGAL_TYPES,
+    LEGAL_STATUS_EXPIRED,
+    LEGAL_STATUS_SOON,
+    LEGAL_STATUS_UNKNOWN,
+    LEGAL_STATUS_VALID,
     CONF_NAME,
     CONF_REMOVED,
     CONF_VEHICLE_ID,
@@ -32,6 +36,9 @@ from .const import (
     MAINTENANCE_TYPES,
     MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
+    MAINTENANCE_STATUS_OK,
+    MAINTENANCE_STATUS_OVERDUE,
+    MAINTENANCE_STATUS_SOON,
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
@@ -41,6 +48,8 @@ from .maintenance import (
     calculate_km_remaining,
     calculate_maintenance_status,
     get_maintenance_value,
+    maintenance_remaining_values,
+    maintenance_status,
 )
 from .rovinieta.sensor import async_setup_rovinieta_sensors
 
@@ -284,7 +293,7 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         return "configurat"
 
     @property
-    def extra_state_attributes(self) -> dict[str, str]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return vehicle attributes."""
 
         attributes = {
@@ -318,13 +327,119 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
                     "update_maintenance": bool(record.get("update_maintenance", False)),
                     "restored": bool(record.get("restored", False)),
                     "restored_at": record.get("restored_at", ""),
+                    "updated_at": record.get("updated_at", ""),
                 }
             )
 
         vehicle_records.sort(key=lambda item: str(item.get("date", "")), reverse=True)
         attributes["service_history"] = vehicle_records[:10]
+        attributes.update(_vehicle_overall_summary(self._vehicle))
 
         return attributes
+
+
+def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
+    """Build an aggregated health summary for one vehicle."""
+
+    critical_items: list[dict[str, Any]] = []
+    warning_items: list[dict[str, Any]] = []
+    ok_items: list[dict[str, Any]] = []
+    unknown_items: list[dict[str, Any]] = []
+
+    for maintenance_type, label in MAINTENANCE_TYPES.items():
+        status = maintenance_status(vehicle, maintenance_type)
+        km_remaining, days_remaining = maintenance_remaining_values(vehicle, maintenance_type)
+        item = _build_overall_item(
+            category="maintenance",
+            key=maintenance_type,
+            label=label,
+            status=status,
+            days_remaining=days_remaining,
+            km_remaining=km_remaining,
+        )
+
+        if status == MAINTENANCE_STATUS_OVERDUE:
+            critical_items.append(item)
+        elif status == MAINTENANCE_STATUS_SOON:
+            warning_items.append(item)
+        elif status == MAINTENANCE_STATUS_OK:
+            ok_items.append(item)
+        else:
+            unknown_items.append(item)
+
+    for legal_type, label in LEGAL_TYPES.items():
+        status = legal_status(vehicle, legal_type)
+        days_remaining = legal_days_remaining(vehicle, legal_type)
+        item = _build_overall_item(
+            category="legal",
+            key=legal_type,
+            label=label,
+            status=status,
+            days_remaining=days_remaining,
+            km_remaining=None,
+        )
+
+        if status == LEGAL_STATUS_EXPIRED:
+            critical_items.append(item)
+        elif status == LEGAL_STATUS_SOON:
+            warning_items.append(item)
+        elif status == LEGAL_STATUS_VALID:
+            ok_items.append(item)
+        else:
+            unknown_items.append(item)
+
+    if critical_items:
+        overall_status = "critic"
+        overall_status_label = "Critic"
+    elif warning_items:
+        overall_status = "atenție"
+        overall_status_label = "Atenție"
+    elif unknown_items:
+        overall_status = "atenție"
+        overall_status_label = "Atenție"
+    else:
+        overall_status = "ok"
+        overall_status_label = "OK"
+
+    return {
+        "overall_status": overall_status,
+        "overall_status_label": overall_status_label,
+        "critical_items": critical_items,
+        "warning_items": warning_items + unknown_items,
+        "ok_items": ok_items,
+        "unknown_items": unknown_items,
+        "critical_count": len(critical_items),
+        "warning_count": len(warning_items) + len(unknown_items),
+        "ok_count": len(ok_items),
+    }
+
+
+def _build_overall_item(
+    *,
+    category: str,
+    key: str,
+    label: str,
+    status: str,
+    days_remaining: int | None,
+    km_remaining: int | None,
+) -> dict[str, Any]:
+    """Build one compact aggregated summary item."""
+
+    parts: list[str] = [status]
+    if days_remaining is not None:
+        parts.append(f"{days_remaining} zile")
+    if km_remaining is not None:
+        parts.append(f"{km_remaining} km")
+
+    return {
+        "category": category,
+        "key": key,
+        "label": label,
+        "status": status,
+        "days_remaining": days_remaining,
+        "km_remaining": km_remaining,
+        "summary": " · ".join(parts),
+    }
 
 
 def _service_history_type_label(record_type: str) -> str:

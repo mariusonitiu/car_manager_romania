@@ -29,6 +29,7 @@ from .rovinieta.models import VehicleData
 from .storage import CarManagerNotificationStore
 
 ROVINIETA_SOON_DAYS_THRESHOLD = 30
+MAX_ITEMS_IN_NOTIFICATION = 8
 
 
 def _safe_key(value: str) -> str:
@@ -63,11 +64,26 @@ def _notification_id(vehicle_id: str, category: str, item_type: str) -> str:
     return f"car_manager_romania_{_safe_key(vehicle_id)}_{category}_{_safe_key(item_type)}"
 
 
+def _overall_notification_key(vehicle_id: str) -> str:
+    """Return storage key for aggregated vehicle notification."""
+
+    return _notification_key(vehicle_id, "overall", "summary")
+
+
+def _overall_notification_id(vehicle_id: str) -> str:
+    """Return persistent notification id for aggregated vehicle notification."""
+
+    return _notification_id(vehicle_id, "overall", "summary")
+
+
 def _format_days(days_remaining: int | None) -> str:
     """Return a clear Romanian phrase for remaining days."""
 
     if days_remaining is None:
         return "Zile rămase: necunoscut."
+
+    if days_remaining < 0:
+        return f"Depășit de {abs(days_remaining)} zile."
 
     if days_remaining == 0:
         return "Expiră astăzi."
@@ -78,76 +94,20 @@ def _format_days(days_remaining: int | None) -> str:
     return f"Mai sunt {days_remaining} zile."
 
 
-def _format_km(km_remaining: int | None) -> str | None:
-    """Return a clear Romanian phrase for remaining kilometers."""
-
-    if km_remaining is None:
-        return None
-
-    if km_remaining <= 0:
-        return f"Kilometraj depășit cu {abs(km_remaining)} km."
-
-    return f"Mai sunt {km_remaining} km."
-
-
-def _status_title(label: str, status: str) -> str:
-    """Return notification title according to status."""
-
-    if status in (MAINTENANCE_STATUS_OVERDUE, LEGAL_STATUS_EXPIRED, "expirată"):
-        return f"Car Manager România: {label} expirat/depășit"
-
-    return f"Car Manager România: {label} expiră în curând"
-
-
-def _build_maintenance_message(
-    vehicle: dict[str, Any],
-    maintenance_label: str,
+def _format_item_detail(
+    *,
     status: str,
-    km_remaining: int | None,
-    days_remaining: int | None,
+    days_remaining: int | None = None,
+    km_remaining: int | None = None,
 ) -> str:
-    """Build maintenance notification message."""
+    """Return a compact item detail for aggregated notifications."""
 
-    vehicle_name = _vehicle_label(vehicle)
-    if status == MAINTENANCE_STATUS_OVERDUE:
-        first_line = f"{maintenance_label} pentru {vehicle_name} este depășită."
-    else:
-        first_line = f"{maintenance_label} pentru {vehicle_name} se apropie de termen."
-
-    parts = [first_line]
-
-    km_text = _format_km(km_remaining)
-    if km_text:
-        parts.append(km_text)
-
+    parts: list[str] = [status]
     if days_remaining is not None:
-        parts.append(_format_days(days_remaining))
-
-    parts.append("Verifică datele și actualizează intervenția după efectuare.")
-    return "\n".join(parts)
-
-
-def _build_legal_message(
-    vehicle: dict[str, Any],
-    label: str,
-    status: str,
-    days_remaining: int | None,
-) -> str:
-    """Build legal term notification message."""
-
-    vehicle_name = _vehicle_label(vehicle)
-    if status == LEGAL_STATUS_EXPIRED:
-        first_line = f"{label} pentru {vehicle_name} este expirat."
-    else:
-        first_line = f"{label} pentru {vehicle_name} expiră în curând."
-
-    return "\n".join(
-        [
-            first_line,
-            _format_days(days_remaining),
-            "Actualizează data de expirare după reînnoire.",
-        ]
-    )
+        parts.append(f"{days_remaining} zile")
+    if km_remaining is not None:
+        parts.append(f"{km_remaining} km")
+    return " · ".join(parts)
 
 
 def _find_rovinieta_vehicle(
@@ -200,48 +160,19 @@ def _format_rovinieta_expiry(rovinieta_vehicle: VehicleData) -> str | None:
     return local_dt.strftime("%d.%m.%Y %H:%M")
 
 
-def _build_rovinieta_message(
-    vehicle: dict[str, Any],
-    rovinieta_vehicle: VehicleData,
-    status: str,
-) -> str:
-    """Build rovinieta notification message."""
-
-    vehicle_name = _vehicle_label(vehicle)
-    if status == "expirată":
-        first_line = f"Rovinieta pentru {vehicle_name} nu este activă sau este expirată."
-    else:
-        first_line = f"Rovinieta pentru {vehicle_name} expiră în curând."
-
-    parts = [first_line]
-    parts.append(_format_days(rovinieta_vehicle.days_remaining))
-
-    expiry = _format_rovinieta_expiry(rovinieta_vehicle)
-    if expiry:
-        parts.append(f"Expiră la: {expiry}.")
-
-    if rovinieta_vehicle.active_vignette:
-        serie = rovinieta_vehicle.active_vignette.get("oProdVignetteSerie")
-        if serie:
-            parts.append(f"Serie rovinietă: {serie}.")
-
-    parts.append("Verifică datele din e-rovinieta.ro înainte de drum.")
-    return "\n".join(parts)
-
-
 async def _handle_notification(
     hass: HomeAssistant,
     store: CarManagerNotificationStore,
     key: str,
     notification_id: str,
-    status: str,
+    fingerprint: str,
     title: str,
     message: str,
 ) -> None:
-    """Create a persistent notification only when the stored status changed."""
+    """Create a persistent notification only when the stored fingerprint changed."""
 
-    already_notified_status = await store.async_get_notified_status(key)
-    if already_notified_status == status:
+    already_notified_fingerprint = await store.async_get_notified_status(key)
+    if already_notified_fingerprint == fingerprint:
         return
 
     persistent_notification.async_create(
@@ -250,7 +181,7 @@ async def _handle_notification(
         title=title,
         notification_id=notification_id,
     )
-    await store.async_set_notified_status(key, status)
+    await store.async_set_notified_status(key, fingerprint)
 
 
 async def _clear_notification(
@@ -265,99 +196,239 @@ async def _clear_notification(
     persistent_notification.async_dismiss(hass, notification_id)
 
 
+def _build_vehicle_issue_summary(
+    entry: CarManagerConfigEntry,
+    vehicle: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Build critical and warning issue lists for one vehicle."""
+
+    critical_items: list[dict[str, Any]] = []
+    warning_items: list[dict[str, Any]] = []
+
+    for maintenance_type, maintenance_label in MAINTENANCE_TYPES.items():
+        status = maintenance_status(vehicle, maintenance_type)
+        if status in (MAINTENANCE_STATUS_OK, MAINTENANCE_STATUS_UNKNOWN):
+            continue
+        if status not in (MAINTENANCE_STATUS_SOON, MAINTENANCE_STATUS_OVERDUE):
+            continue
+
+        km_remaining, days_remaining = maintenance_remaining_values(
+            vehicle,
+            maintenance_type,
+        )
+        item = {
+            "category": "maintenance",
+            "key": maintenance_type,
+            "label": maintenance_label,
+            "status": status,
+            "days_remaining": days_remaining,
+            "km_remaining": km_remaining,
+            "detail": _format_item_detail(
+                status=status,
+                days_remaining=days_remaining,
+                km_remaining=km_remaining,
+            ),
+        }
+        if status == MAINTENANCE_STATUS_OVERDUE:
+            critical_items.append(item)
+        else:
+            warning_items.append(item)
+
+    for legal_type, legal_label in LEGAL_TYPES.items():
+        current_legal_status = legal_status(vehicle, legal_type)
+        if current_legal_status in (LEGAL_STATUS_VALID, LEGAL_STATUS_UNKNOWN):
+            continue
+        if current_legal_status not in (LEGAL_STATUS_SOON, LEGAL_STATUS_EXPIRED):
+            continue
+
+        days_remaining = legal_days_remaining(vehicle, legal_type)
+        item = {
+            "category": "legal",
+            "key": legal_type,
+            "label": legal_label,
+            "status": current_legal_status,
+            "days_remaining": days_remaining,
+            "km_remaining": None,
+            "detail": _format_item_detail(
+                status=current_legal_status,
+                days_remaining=days_remaining,
+            ),
+        }
+        if current_legal_status == LEGAL_STATUS_EXPIRED:
+            critical_items.append(item)
+        else:
+            warning_items.append(item)
+
+    rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle)
+    if rovinieta_vehicle is not None:
+        current_rovinieta_status = _rovinieta_status(rovinieta_vehicle)
+        if current_rovinieta_status not in ("validă", "necunoscut"):
+            detail = _format_item_detail(
+                status=current_rovinieta_status,
+                days_remaining=rovinieta_vehicle.days_remaining,
+            )
+            expiry = _format_rovinieta_expiry(rovinieta_vehicle)
+            if expiry:
+                detail = f"{detail} · expiră la {expiry}"
+
+            item = {
+                "category": "legal",
+                "key": "rovinieta",
+                "label": "Rovinietă",
+                "status": current_rovinieta_status,
+                "days_remaining": rovinieta_vehicle.days_remaining,
+                "km_remaining": None,
+                "detail": detail,
+            }
+            if current_rovinieta_status == "expirată":
+                critical_items.append(item)
+            else:
+                warning_items.append(item)
+
+    return critical_items, warning_items
+
+
+def _build_fingerprint(
+    critical_items: list[dict[str, Any]],
+    warning_items: list[dict[str, Any]],
+) -> str:
+    """Build a stable fingerprint so notifications are not repeated at restart."""
+
+    parts: list[str] = []
+    for severity, items in (("critical", critical_items), ("warning", warning_items)):
+        for item in sorted(
+            items,
+            key=lambda current: (
+                str(current.get("category", "")),
+                str(current.get("key", "")),
+            ),
+        ):
+            parts.append(
+                "|".join(
+                    [
+                        severity,
+                        str(item.get("category", "")),
+                        str(item.get("key", "")),
+                        str(item.get("status", "")),
+                        str(item.get("days_remaining", "")),
+                        str(item.get("km_remaining", "")),
+                    ]
+                )
+            )
+
+    return "\n".join(parts)
+
+
+def _build_overall_title(
+    vehicle: dict[str, Any],
+    critical_items: list[dict[str, Any]],
+) -> str:
+    """Build aggregated notification title."""
+
+    vehicle_name = _vehicle_label(vehicle)
+    if critical_items:
+        return f"Car Manager România: {vehicle_name} are probleme critice"
+    return f"Car Manager România: {vehicle_name} are atenționări"
+
+
+def _append_item_lines(
+    lines: list[str],
+    items: list[dict[str, Any]],
+) -> None:
+    """Append compact item lines to a notification body."""
+
+    for item in items[:MAX_ITEMS_IN_NOTIFICATION]:
+        lines.append(f"- {item['label']}: {item['detail']}")
+
+    remaining = len(items) - MAX_ITEMS_IN_NOTIFICATION
+    if remaining > 0:
+        lines.append(f"- încă {remaining} element(e) în card")
+
+
+def _build_overall_message(
+    vehicle: dict[str, Any],
+    critical_items: list[dict[str, Any]],
+    warning_items: list[dict[str, Any]],
+) -> str:
+    """Build aggregated notification message."""
+
+    lines: list[str] = [
+        f"Stare generală pentru {_vehicle_label(vehicle)}:",
+    ]
+
+    if critical_items:
+        lines.append("")
+        lines.append("Probleme critice:")
+        _append_item_lines(lines, critical_items)
+
+    if warning_items:
+        lines.append("")
+        lines.append("Atenționări:")
+        _append_item_lines(lines, warning_items)
+
+    lines.append("")
+    lines.append("Deschide cardul Car Manager România pentru detalii și actualizare.")
+    return "\n".join(lines)
+
+
+async def _clear_legacy_item_notifications(
+    hass: HomeAssistant,
+    store: CarManagerNotificationStore,
+    vehicle_id: str,
+) -> None:
+    """Dismiss legacy per-item notifications replaced by aggregated notifications."""
+
+    for maintenance_type in MAINTENANCE_TYPES:
+        await _clear_notification(
+            hass,
+            store,
+            _notification_key(vehicle_id, "maintenance", maintenance_type),
+            _notification_id(vehicle_id, "maintenance", maintenance_type),
+        )
+
+    for legal_type in LEGAL_TYPES:
+        await _clear_notification(
+            hass,
+            store,
+            _notification_key(vehicle_id, "legal", legal_type),
+            _notification_id(vehicle_id, "legal", legal_type),
+        )
+
+    await _clear_notification(
+        hass,
+        store,
+        _notification_key(vehicle_id, "legal", "rovinieta"),
+        _notification_id(vehicle_id, "legal", "rovinieta"),
+    )
+
+
 async def async_check_maintenance_notifications(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> None:
-    """Create persistent notifications for maintenance, legal terms and rovinieta."""
+    """Create one smart persistent notification per vehicle when its issue list changes."""
 
     store = CarManagerNotificationStore(hass)
 
     for vehicle in entry.runtime_data.vehicles:
-        vehicle_id = vehicle["vehicle_id"]
+        vehicle_id = str(vehicle["vehicle_id"])
+        await _clear_legacy_item_notifications(hass, store, vehicle_id)
 
-        for maintenance_type, maintenance_label in MAINTENANCE_TYPES.items():
-            status = maintenance_status(vehicle, maintenance_type)
-            key = _notification_key(vehicle_id, "maintenance", maintenance_type)
-            notification_id = _notification_id(vehicle_id, "maintenance", maintenance_type)
+        critical_items, warning_items = _build_vehicle_issue_summary(entry, vehicle)
+        key = _overall_notification_key(vehicle_id)
+        notification_id = _overall_notification_id(vehicle_id)
 
-            if status in (MAINTENANCE_STATUS_OK, MAINTENANCE_STATUS_UNKNOWN):
-                await _clear_notification(hass, store, key, notification_id)
-                continue
-
-            if status not in (MAINTENANCE_STATUS_SOON, MAINTENANCE_STATUS_OVERDUE):
-                continue
-
-            km_remaining, days_remaining = maintenance_remaining_values(
-                vehicle,
-                maintenance_type,
-            )
-            await _handle_notification(
-                hass,
-                store,
-                key,
-                notification_id,
-                status,
-                _status_title(maintenance_label, status),
-                _build_maintenance_message(
-                    vehicle,
-                    maintenance_label,
-                    status,
-                    km_remaining,
-                    days_remaining,
-                ),
-            )
-
-        for legal_type, legal_label in LEGAL_TYPES.items():
-            current_legal_status = legal_status(vehicle, legal_type)
-            key = _notification_key(vehicle_id, "legal", legal_type)
-            notification_id = _notification_id(vehicle_id, "legal", legal_type)
-
-            if current_legal_status in (LEGAL_STATUS_VALID, LEGAL_STATUS_UNKNOWN):
-                await _clear_notification(hass, store, key, notification_id)
-                continue
-
-            if current_legal_status not in (LEGAL_STATUS_SOON, LEGAL_STATUS_EXPIRED):
-                continue
-
-            await _handle_notification(
-                hass,
-                store,
-                key,
-                notification_id,
-                current_legal_status,
-                _status_title(legal_label, current_legal_status),
-                _build_legal_message(
-                    vehicle,
-                    legal_label,
-                    current_legal_status,
-                    legal_days_remaining(vehicle, legal_type),
-                ),
-            )
-
-        rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle)
-        rovinieta_key = _notification_key(vehicle_id, "legal", "rovinieta")
-        rovinieta_notification_id = _notification_id(vehicle_id, "legal", "rovinieta")
-
-        if rovinieta_vehicle is None:
-            await _clear_notification(hass, store, rovinieta_key, rovinieta_notification_id)
+        if not critical_items and not warning_items:
+            await _clear_notification(hass, store, key, notification_id)
             continue
 
-        current_rovinieta_status = _rovinieta_status(rovinieta_vehicle)
-        if current_rovinieta_status in ("validă", "necunoscut"):
-            await _clear_notification(hass, store, rovinieta_key, rovinieta_notification_id)
-            continue
-
+        fingerprint = _build_fingerprint(critical_items, warning_items)
         await _handle_notification(
             hass,
             store,
-            rovinieta_key,
-            rovinieta_notification_id,
-            current_rovinieta_status,
-            _status_title("Rovinietă", current_rovinieta_status),
-            _build_rovinieta_message(
-                vehicle,
-                rovinieta_vehicle,
-                current_rovinieta_status,
-            ),
+            key,
+            notification_id,
+            fingerprint,
+            _build_overall_title(vehicle, critical_items),
+            _build_overall_message(vehicle, critical_items, warning_items),
         )
