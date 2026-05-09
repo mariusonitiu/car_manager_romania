@@ -9,6 +9,7 @@ from homeassistant.components.text import TextEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.dispatcher import dispatcher_send
 
 from . import CarManagerConfigEntry
 from .const import (
@@ -18,6 +19,7 @@ from .const import (
     LEGAL_TYPE_ITP,
     LEGAL_TYPE_RCA,
     RCA_TEXT_FIELDS,
+    SIGNAL_VEHICLES_UPDATED,
 )
 from .device import build_vehicle_device_info
 from .legal import get_legal_value, set_legal_value
@@ -106,6 +108,7 @@ class VehicleBaseText(TextEntity):
         await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
 
         self._entry.runtime_data.vehicles = list(vehicles)
+        dispatcher_send(self._hass, SIGNAL_VEHICLES_UPDATED, vehicles)
         for vehicle in vehicles:
             if vehicle["vehicle_id"] == self._vehicle_id:
                 self._vehicle = vehicle

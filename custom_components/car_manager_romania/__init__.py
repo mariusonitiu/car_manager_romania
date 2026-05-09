@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import timedelta
 import logging
 from typing import Any
@@ -42,6 +43,54 @@ class CarManagerRuntimeData:
 type CarManagerConfigEntry = ConfigEntry[CarManagerRuntimeData]
 
 
+async def _async_register_frontend(hass: HomeAssistant) -> None:
+    """Serve the bundled Lovelace card and notify the user how to add it."""
+
+    frontend_path = Path(__file__).parent / "frontend"
+    if not frontend_path.exists():
+        return
+
+    try:
+        from homeassistant.components.http import StaticPathConfig
+
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    "/car_manager_romania",
+                    str(frontend_path),
+                    True,
+                )
+            ]
+        )
+    except Exception:  # noqa: BLE001
+        try:
+            hass.http.async_register_static_path(
+                "/car_manager_romania",
+                str(frontend_path),
+                True,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Nu am putut publica fișierul cardului Lovelace: %s", err)
+            return
+
+    try:
+        from homeassistant.components import persistent_notification
+
+        persistent_notification.async_create(
+            hass,
+            "Cardul Lovelace Car Manager România este disponibil.\n\n"
+            "Dacă nu apare automat în interfață, adaugă manual resursa:\n\n"
+            "URL: `/car_manager_romania/car-manager-romania-card.js`\n\n"
+            "Tip: `JavaScript Module`\n\n"
+            "Apoi adaugă un card manual cu:\n\n"
+            "`type: custom:car-manager-romania-card`",
+            title="Car Manager România - card Lovelace",
+            notification_id="car_manager_romania_lovelace_card",
+        )
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.debug("Nu am putut crea notificarea pentru cardul Lovelace: %s", err)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
@@ -71,6 +120,8 @@ async def async_setup_entry(
     )
 
     entry.async_on_unload(entry.add_update_listener(async_update_options))
+
+    await _async_register_frontend(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

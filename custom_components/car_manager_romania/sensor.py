@@ -9,6 +9,7 @@ from homeassistant.const import EntityCategory, UnitOfLength
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from .device import build_vehicle_device_info
 
 from . import CarManagerConfigEntry
@@ -29,6 +30,7 @@ from .const import (
     MAINTENANCE_TYPES,
     MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
+    SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
 from .legal import legal_days_remaining, legal_status, get_legal_value
@@ -185,6 +187,26 @@ class CarVehicleBaseSensor(SensorEntity):
         self._entry = entry
         self._vehicle = vehicle
         self._vehicle_id = vehicle["vehicle_id"]
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to vehicle data updates."""
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_VEHICLES_UPDATED,
+                self._handle_vehicles_updated,
+            )
+        )
+
+    def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
+        """Refresh cached vehicle data and update the entity state."""
+
+        for vehicle in vehicles:
+            if vehicle.get("vehicle_id") == self._vehicle_id:
+                self._vehicle = vehicle
+                self.async_write_ha_state()
+                break
 
     @property
     def device_info(self) -> DeviceInfo:
