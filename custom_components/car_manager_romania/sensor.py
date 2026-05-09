@@ -21,6 +21,8 @@ from .const import (
     LEGAL_START_DATE,
     LEGAL_TYPES,
     CONF_NAME,
+    CONF_REMOVED,
+    CONF_VEHICLE_ID,
     CONF_VIN,
     DOMAIN,
     MAINTENANCE_INTERVAL_DAYS,
@@ -144,11 +146,28 @@ class CarManagerStatusSensor(CarManagerBaseSensor):
         return "activ"
 
     @property
-    def extra_state_attributes(self) -> dict[str, str]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return attributes."""
+
+        all_vehicles = getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles)
+        inactive_vehicles: list[dict[str, Any]] = []
+        for vehicle in all_vehicles:
+            if not isinstance(vehicle, dict) or not bool(vehicle.get(CONF_REMOVED)):
+                continue
+
+            inactive_vehicles.append(
+                {
+                    CONF_VEHICLE_ID: vehicle.get(CONF_VEHICLE_ID, ""),
+                    CONF_NAME: vehicle.get(CONF_NAME, "Autovehicul"),
+                    CONF_LICENSE_PLATE: vehicle.get(CONF_LICENSE_PLATE, ""),
+                    CONF_VIN: vehicle.get(CONF_VIN, ""),
+                    CONF_KM: vehicle.get(CONF_KM, 0),
+                }
+            )
 
         return {
             ATTR_INTEGRATION_VERSION: VERSION,
+            "inactive_vehicles": inactive_vehicles,
         }
 
 
@@ -269,6 +288,7 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         """Return vehicle attributes."""
 
         attributes = {
+            CONF_VEHICLE_ID: self._vehicle_id,
             CONF_NAME: self._vehicle.get(CONF_NAME, ""),
             CONF_LICENSE_PLATE: self._vehicle.get(CONF_LICENSE_PLATE, ""),
         }

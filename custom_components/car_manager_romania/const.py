@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.7.2"
+VERSION = "0.8.4"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -14,6 +14,14 @@ ATTR_INTEGRATION_VERSION = "integration_version"
 SIGNAL_VEHICLES_UPDATED = f"{DOMAIN}_vehicles_updated"
 
 CONF_VEHICLES = "vehicles"
+
+SERVICE_ADD_VEHICLE = "add_vehicle"
+SERVICE_REMOVE_VEHICLE = "remove_vehicle"
+SERVICE_RESTORE_VEHICLE = "restore_vehicle"
+SERVICE_RESTORE_ALL_VEHICLES = "restore_all_vehicles"
+
+CONF_VEHICLE_ID = "vehicle_id"
+CONF_REMOVED = "removed"
 
 CONF_NAME = "name"
 CONF_LICENSE_PLATE = "license_plate"

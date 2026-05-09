@@ -20,6 +20,7 @@ from .const import (
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_TYPES,
     MAINTENANCE_TYPE_SERVICE,
+    CONF_REMOVED,
     SIGNAL_VEHICLES_UPDATED,
 )
 from .device import build_vehicle_device_info
@@ -107,15 +108,20 @@ class VehicleBaseDate(DateEntity):
         and overwrite fields previously edited from other entities.
         """
 
-        return deepcopy(self._entry.runtime_data.vehicles)
+        return deepcopy(getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles))
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in Home Assistant storage and refresh runtime data."""
 
         await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
 
-        self._entry.runtime_data.vehicles = list(vehicles)
-        dispatcher_send(self._hass, SIGNAL_VEHICLES_UPDATED, vehicles)
+        active_vehicles = [
+            vehicle for vehicle in vehicles
+            if isinstance(vehicle, dict) and not bool(vehicle.get(CONF_REMOVED))
+        ]
+        self._entry.runtime_data.all_vehicles = list(vehicles)
+        self._entry.runtime_data.vehicles = active_vehicles
+        dispatcher_send(self._hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
         for vehicle in vehicles:
             if vehicle["vehicle_id"] == self._vehicle_id:
                 self._vehicle = vehicle

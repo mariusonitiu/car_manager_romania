@@ -1,0 +1,70 @@
+add_vehicle:
+  name: Adaugă autovehicul
+  description: Adaugă un autovehicul în Car Manager România și creează entitățile aferente după reîncărcarea integrării.
+  fields:
+    name:
+      name: Nume mașină
+      description: Numele afișat al autovehiculului.
+      required: true
+      example: Opel Insignia A
+      selector:
+        text:
+    license_plate:
+      name: Număr înmatriculare
+      description: Numărul de înmatriculare al autovehiculului.
+      required: false
+      example: SB01ABC
+      selector:
+        text:
+    vin:
+      name: VIN
+      description: Seria VIN a autovehiculului.
+      required: false
+      selector:
+        text:
+    km:
+      name: Kilometraj actual
+      description: Kilometrajul actual al autovehiculului.
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+
+remove_vehicle:
+  name: Dezactivează autovehicul
+  description: Dezactivează un autovehicul din Car Manager România. Datele rămân în storage pentru siguranță, dar autovehiculul nu mai este încărcat în card și entități după reîncărcarea integrării.
+  fields:
+    vehicle_id:
+      name: ID intern autovehicul
+      description: ID-ul intern stabil al autovehiculului care trebuie dezactivat.
+      required: true
+      example: sb01abc
+      selector:
+        text:
+
+restore_vehicle:
+  name: Reactivează autovehicul
+  description: Reactivează un autovehicul dezactivat anterior în Car Manager România. Entitățile lui vor fi create din nou după reîncărcarea integrării.
+  fields:
+    vehicle_id:
+      name: ID intern autovehicul
+      description: ID-ul intern stabil al autovehiculului care trebuie reactivat.
+      required: true
+      example: sb01abc
+      selector:
+        text:
+
+restore_all_vehicles:
+  name: Reactivează toate autovehiculele
+  description: Reactivează toate autovehiculele dezactivate anterior în Car Manager România. Este util ca recuperare rapidă dacă un autovehicul a fost dezactivat accidental.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
