@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "0.9.3"; }
+  static get version() { return "1.0.0"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -26,6 +26,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._serviceRecordBusy = this._serviceRecordBusy || null;
     this._serviceRecordMessage = this._serviceRecordMessage || {};
     this._inputEditing = this._inputEditing || false;
+    this._backupOpen = this._backupOpen || false;
+    this._backupBusy = this._backupBusy || null;
+    this._backupFilename = this._backupFilename || "car_manager_romania_backup.json";
+    this._backupMessage = this._backupMessage || "";
   }
 
   set hass(hass) {
@@ -70,10 +74,12 @@ class CarManagerRomaniaCard extends HTMLElement {
             </div>
             <div class="cmr-header-actions">
               <button class="cmr-mode" data-action="toggle-add-vehicle">Adaugă autovehicul</button>
+              <button class="cmr-mode" data-action="toggle-backup">Backup</button>
               <button class="cmr-mode" data-action="toggle-mode">${this._editMode ? "Afișare" : "Editare"}</button>
             </div>
           </div>
           ${this._addVehicleOpen ? this._renderAddVehicleForm() : ""}
+          ${this._backupOpen ? this._renderBackupPanel() : ""}
           ${this._editMode && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}
           ${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}
         </div>
@@ -221,6 +227,32 @@ class CarManagerRomaniaCard extends HTMLElement {
         </div>
         ${this._addVehicleMessage ? `<div class="cmr-message">${this._escape(this._addVehicleMessage)}</div>` : ""}
       </form>
+    `;
+  }
+
+
+  _renderBackupPanel() {
+    const filename = this._backupFilename || "car_manager_romania_backup.json";
+    const busy = Boolean(this._backupBusy);
+    return `
+      <section class="cmr-backup-panel">
+        <div class="cmr-section-title">Backup și restore</div>
+        <div class="cmr-backup-text">
+          Exportul se salvează în <strong>/config</strong>, ca să nu expunem VIN, numere de înmatriculare sau observații prin URL public. Îl poți descărca local din File editor / Studio Code.
+        </div>
+        <label class="cmr-field cmr-backup-field">
+          <span>Nume fișier backup</span>
+          <input type="text" data-backup-filename value="${this._escape(filename)}" placeholder="car_manager_romania_backup.json">
+        </label>
+        <div class="cmr-backup-actions">
+          <button class="cmr-action" type="button" data-action="backup-export" ${busy ? "disabled" : ""}>${this._backupBusy === "export" ? "Export..." : "Exportă backup"}</button>
+          <button class="cmr-action cmr-secondary" type="button" data-action="backup-validate" ${busy ? "disabled" : ""}>${this._backupBusy === "validate" ? "Validare..." : "Validează"}</button>
+          <button class="cmr-action cmr-secondary" type="button" data-action="backup-import-dry" ${busy ? "disabled" : ""}>${this._backupBusy === "dry" ? "Simulare..." : "Simulează import"}</button>
+          <button class="cmr-action cmr-danger" type="button" data-action="backup-import-real" ${busy ? "disabled" : ""}>${this._backupBusy === "import" ? "Import..." : "Importă merge"}</button>
+        </div>
+        <div class="cmr-backup-note">Importul disponibil este momentan doar <strong>merge</strong>: adaugă/actualizează datele din backup, fără să șteargă date existente.</div>
+        ${this._backupMessage ? `<div class="cmr-message">${this._escape(this._backupMessage)}</div>` : ""}
+      </section>
     `;
   }
 
@@ -797,6 +829,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       this.render();
     });
 
+    this.querySelector('[data-action="toggle-backup"]')?.addEventListener("click", () => {
+      this._backupOpen = !this._backupOpen;
+      this._backupMessage = "";
+      this.render();
+    });
+
     this.querySelector('[data-action="cancel-add-vehicle"]')?.addEventListener("click", () => {
       this._addVehicleOpen = false;
       this._addVehicleMessage = "";
@@ -911,6 +949,14 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
+    this.querySelector('[data-backup-filename]')?.addEventListener("input", (event) => {
+      this._backupFilename = event.currentTarget.value || "car_manager_romania_backup.json";
+    });
+    this.querySelector('[data-action="backup-export"]')?.addEventListener("click", () => this._runBackupAction("export"));
+    this.querySelector('[data-action="backup-validate"]')?.addEventListener("click", () => this._runBackupAction("validate"));
+    this.querySelector('[data-action="backup-import-dry"]')?.addEventListener("click", () => this._runBackupAction("dry"));
+    this.querySelector('[data-action="backup-import-real"]')?.addEventListener("click", () => this._runBackupAction("import"));
+
     this.querySelectorAll("input, textarea, select").forEach((input) => {
       input.addEventListener("focusin", () => {
         this._inputEditing = true;
@@ -990,6 +1036,61 @@ class CarManagerRomaniaCard extends HTMLElement {
       invoice_number: (data.get("invoice_number") || "").toString(),
       notes: (data.get("notes") || "").toString(),
     };
+  }
+
+  async _runBackupAction(action) {
+    if (!this._hass || this._backupBusy) return;
+
+    const filename = (this._backupFilename || "car_manager_romania_backup.json").trim() || "car_manager_romania_backup.json";
+    if (filename.includes("/") || filename.includes("\\")) {
+      this._backupMessage = "Numele fișierului nu trebuie să conțină cale sau directoare.";
+      this.render();
+      return;
+    }
+
+    if (action === "import") {
+      const confirmed = window.confirm(
+        "Importul merge va adăuga sau actualiza datele din backup. Nu șterge date existente, dar poate suprascrie valori pentru autovehicule/intervenții cu același ID. Continui?"
+      );
+      if (!confirmed) return;
+    }
+
+    const serviceMap = {
+      export: "export_data",
+      validate: "validate_backup",
+      dry: "import_data",
+      import: "import_data",
+    };
+    const service = serviceMap[action];
+    if (!service) return;
+
+    const payload = { filename };
+    if (action === "dry" || action === "import") {
+      payload.mode = "merge";
+      payload.dry_run = action === "dry";
+    }
+
+    this._backupBusy = action;
+    this._backupMessage = "";
+    this.render();
+
+    try {
+      await this._hass.callService("car_manager_romania", service, payload);
+      if (action === "export") {
+        this._backupMessage = `Backup exportat în /config/${filename}. Descarcă-l local din File editor / Studio Code și păstrează-l în siguranță.`;
+      } else if (action === "validate") {
+        this._backupMessage = "Validarea a fost pornită. Rezultatul apare în notificările Home Assistant.";
+      } else if (action === "dry") {
+        this._backupMessage = "Simularea importului a fost pornită. Rezultatul apare în notificările Home Assistant.";
+      } else {
+        this._backupMessage = "Importul merge a fost pornit. Integrarea se va reîncărca dacă datele au fost aplicate.";
+      }
+    } catch (error) {
+      this._backupMessage = error?.message || "Operațiunea de backup/restore a eșuat.";
+    } finally {
+      this._backupBusy = null;
+      this.render();
+    }
   }
 
   async _addServiceRecord(form) {
@@ -1545,6 +1646,10 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-mode, .cmr-action { border: 0; border-radius: 999px; padding: 8px 12px; color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); cursor: pointer; font-weight: 700; }
       .cmr-mode[disabled], .cmr-action[disabled] { opacity: .6; cursor: wait; }
       .cmr-secondary { background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent); }
+      .cmr-backup-panel { margin-top: 14px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
+      .cmr-backup-text, .cmr-backup-note { color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; margin-top: 6px; }
+      .cmr-backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .cmr-backup-field { margin-top: 10px; }
       .cmr-vehicle { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
       .cmr-vehicle-title { font-size: 17px; font-weight: 800; }
       .cmr-km { white-space: nowrap; font-weight: 800; font-size: 18px; }

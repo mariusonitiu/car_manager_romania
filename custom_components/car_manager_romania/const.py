@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "0.9.8"
+VERSION = "1.0.0"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
