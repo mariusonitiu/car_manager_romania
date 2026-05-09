@@ -323,3 +323,39 @@ validate_backup:
       example: car_manager_romania_backup.json
       selector:
         text:
+
+
+import_data:
+  name: Importă backup JSON
+  description: Importă controlat un backup JSON Car Manager România în modul merge. Cu dry_run activ, doar simulează importul și nu modifică datele.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    filename:
+      name: Nume fișier
+      description: Numele fișierului JSON din /config care trebuie importat. Nu introduce directoare sau cale completă.
+      required: false
+      default: car_manager_romania_backup.json
+      example: car_manager_romania_backup.json
+      selector:
+        text:
+    mode:
+      name: Mod import
+      description: Momentan este disponibil doar modul merge, care adaugă sau actualizează fără să șteargă date existente.
+      required: false
+      default: merge
+      selector:
+        select:
+          options:
+            - merge
+    dry_run:
+      name: Simulare fără modificări
+      description: Când este activ, serviciul doar arată ce ar importa, fără să modifice datele.
+      required: false
+      default: true
+      selector:
+        boolean:

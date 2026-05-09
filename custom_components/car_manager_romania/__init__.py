@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import date as dt_date, datetime, timedelta
@@ -47,6 +48,7 @@ from .const import (
     SERVICE_UPDATE_SERVICE_RECORD,
     SERVICE_EXPORT_DATA,
     SERVICE_VALIDATE_BACKUP,
+    SERVICE_IMPORT_DATA,
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_VERSION_NOTIFICATIONS,
     MAINTENANCE_LAST_DATE,
@@ -380,6 +382,15 @@ VALIDATE_BACKUP_SERVICE_SCHEMA = vol.Schema(
     }
 )
 
+IMPORT_DATA_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Optional("filename", default="car_manager_romania_backup.json"): str,
+        vol.Optional("mode", default="merge"): vol.In(["merge"]),
+        vol.Optional("dry_run", default=True): bool,
+    }
+)
+
 
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -586,6 +597,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_UPDATE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_EXPORT_DATA)
         and hass.services.has_service(DOMAIN, SERVICE_VALIDATE_BACKUP)
+        and hass.services.has_service(DOMAIN, SERVICE_IMPORT_DATA)
     ):
         return
 
@@ -1238,6 +1250,234 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             notification_id=notification_id,
         )
 
+    async def async_import_data(call: ServiceCall) -> None:
+        """Import Car Manager România data from a local JSON backup in merge mode."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_store = entry.runtime_data.vehicle_store
+        history_store = entry.runtime_data.service_history_store
+
+        filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
+        if not filename:
+            filename = "car_manager_romania_backup.json"
+        if "/" in filename or "\\" in filename:
+            raise HomeAssistantError("Numele fișierului de backup nu trebuie să conțină cale sau directoare.")
+        if not filename.lower().endswith(".json"):
+            filename = f"{filename}.json"
+
+        mode = str(call.data.get("mode") or "merge").strip().lower()
+        if mode != "merge":
+            raise HomeAssistantError("Momentan importul permite doar modul sigur merge.")
+
+        dry_run = bool(call.data.get("dry_run", True))
+        backup_path = Path(hass.config.path(filename))
+
+        def _read_backup() -> str:
+            if not backup_path.exists():
+                raise FileNotFoundError(str(backup_path))
+            return backup_path.read_text(encoding="utf-8")
+
+        try:
+            backup_text = await hass.async_add_executor_job(_read_backup)
+        except FileNotFoundError as err:
+            raise HomeAssistantError(f"Fișierul de backup nu există: {backup_path}") from err
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"Nu am putut citi fișierul de backup: {err}") from err
+
+        try:
+            backup_data = json.loads(backup_text)
+        except json.JSONDecodeError as err:
+            raise HomeAssistantError(f"Fișierul nu este JSON valid: {err}") from err
+
+        if not isinstance(backup_data, dict):
+            raise HomeAssistantError("Backup-ul nu are structură JSON validă.")
+        if backup_data.get("schema") != "car_manager_romania_backup":
+            raise HomeAssistantError("Schema backup-ului nu este car_manager_romania_backup.")
+        if backup_data.get("schema_version") != 1:
+            raise HomeAssistantError("Versiunea schemei de backup nu este suportată. Versiunea acceptată este 1.")
+
+        backup_vehicles_raw = backup_data.get("vehicles")
+        backup_history_raw = backup_data.get("service_history")
+        if not isinstance(backup_vehicles_raw, list):
+            raise HomeAssistantError("Câmpul vehicles lipsește sau nu este listă.")
+        if not isinstance(backup_history_raw, list):
+            raise HomeAssistantError("Câmpul service_history lipsește sau nu este listă.")
+
+        backup_vehicles, _ = normalize_vehicles([
+            deepcopy(vehicle)
+            for vehicle in backup_vehicles_raw
+            if isinstance(vehicle, dict)
+        ])
+        backup_history = [
+            deepcopy(record)
+            for record in backup_history_raw
+            if isinstance(record, dict)
+        ]
+
+        current_stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        current_vehicles = merge_vehicle_sources(list(option_vehicles), current_stored_vehicles)
+        current_vehicles, _ = normalize_vehicles(current_vehicles)
+        current_history = await history_store.async_get_records()
+
+        merged_vehicles = [deepcopy(vehicle) for vehicle in current_vehicles if isinstance(vehicle, dict)]
+        vehicle_index_by_id = {
+            str(vehicle.get(CONF_VEHICLE_ID, "")).strip(): index
+            for index, vehicle in enumerate(merged_vehicles)
+            if isinstance(vehicle, dict) and str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+        }
+
+        vehicles_added = 0
+        vehicles_updated = 0
+        vehicles_skipped = 0
+        for vehicle in backup_vehicles:
+            vehicle_id = str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+            if not vehicle_id:
+                vehicles_skipped += 1
+                continue
+            if vehicle_id in vehicle_index_by_id:
+                merged_vehicles[vehicle_index_by_id[vehicle_id]].update(deepcopy(vehicle))
+                vehicles_updated += 1
+            else:
+                merged_vehicles.append(deepcopy(vehicle))
+                vehicle_index_by_id[vehicle_id] = len(merged_vehicles) - 1
+                vehicles_added += 1
+
+        merged_vehicles, _ = normalize_vehicles(merged_vehicles)
+        active_vehicles = _active_vehicles(merged_vehicles)
+
+        merged_history = [deepcopy(record) for record in current_history if isinstance(record, dict)]
+        history_index_by_id = {
+            str(record.get("record_id", "")).strip(): index
+            for index, record in enumerate(merged_history)
+            if isinstance(record, dict) and str(record.get("record_id", "")).strip()
+        }
+
+        history_added = 0
+        history_updated = 0
+        history_skipped = 0
+        unknown_history_refs: set[str] = set()
+        merged_vehicle_ids = {
+            str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+            for vehicle in merged_vehicles
+            if isinstance(vehicle, dict) and str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+        }
+        for record in backup_history:
+            record_id = str(record.get("record_id", "")).strip()
+            record_vehicle_id = str(record.get(CONF_VEHICLE_ID, "")).strip()
+            if not record_id:
+                history_skipped += 1
+                continue
+            if record_vehicle_id and record_vehicle_id not in merged_vehicle_ids:
+                unknown_history_refs.add(record_vehicle_id)
+            if record_id in history_index_by_id:
+                merged_history[history_index_by_id[record_id]].update(deepcopy(record))
+                history_updated += 1
+            else:
+                merged_history.append(deepcopy(record))
+                history_index_by_id[record_id] = len(merged_history) - 1
+                history_added += 1
+
+        notification_merged = False
+        notification_state = backup_data.get("notification_state")
+        if isinstance(notification_state, dict) and isinstance(notification_state.get("notified"), dict):
+            notification_merged = True
+
+        if not dry_run:
+            await vehicle_store.async_save_vehicles(merged_vehicles)
+            await history_store.async_save_records(merged_history)
+
+            if notification_merged and isinstance(notification_state, dict):
+                try:
+                    from homeassistant.helpers.storage import Store
+
+                    notification_store = Store(
+                        hass,
+                        STORAGE_VERSION_NOTIFICATIONS,
+                        STORAGE_KEY_NOTIFICATIONS,
+                    )
+                    current_notification_state = await notification_store.async_load()
+                    if not isinstance(current_notification_state, dict):
+                        current_notification_state = {"notified": {}}
+                    current_notified = current_notification_state.get("notified")
+                    if not isinstance(current_notified, dict):
+                        current_notified = {}
+                    incoming_notified = notification_state.get("notified")
+                    if isinstance(incoming_notified, dict):
+                        current_notified.update(deepcopy(incoming_notified))
+                    await notification_store.async_save({"notified": current_notified})
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning("Nu am putut importa starea notificărilor Car Manager România: %s", err)
+
+            entry.runtime_data.vehicles = active_vehicles
+            entry.runtime_data.all_vehicles = merged_vehicles
+            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+        exported_at = str(backup_data.get("exported_at", "necunoscut"))
+        backup_version = str(backup_data.get("integration_version", "necunoscut"))
+        from homeassistant.components import persistent_notification
+
+        summary_lines = [
+            "Importul Car Manager România a fost simulat. Nu s-a modificat nimic." if dry_run else "Importul Car Manager România a fost aplicat în modul merge.",
+            "",
+            f"Fișier: `{backup_path}`",
+            f"Exportat la: `{exported_at}`",
+            f"Versiune integrare la export: `{backup_version}`",
+            "Mod import: `merge`",
+            f"Dry run: `{str(dry_run).lower()}`",
+            "",
+            "Rezultat:",
+            f"- Autovehicule adăugate: {vehicles_added}",
+            f"- Autovehicule actualizate: {vehicles_updated}",
+            f"- Autovehicule ignorate: {vehicles_skipped}",
+            f"- Intervenții adăugate: {history_added}",
+            f"- Intervenții actualizate: {history_updated}",
+            f"- Intervenții ignorate: {history_skipped}",
+            f"- Stare notificări: {'inclusă în merge' if notification_merged else 'neinclusă / lipsă'}",
+        ]
+        if unknown_history_refs:
+            summary_lines.extend([
+                "",
+                "Avertizări:",
+                "- Există intervenții cu vehicle_id necunoscut după import: "
+                + ", ".join(sorted(unknown_history_refs)[:5])
+                + ("..." if len(unknown_history_refs) > 5 else ""),
+            ])
+        if dry_run:
+            summary_lines.extend([
+                "",
+                "Pentru aplicare reală, rulează din nou serviciul cu `dry_run: false`.",
+            ])
+        else:
+            summary_lines.extend([
+                "",
+                "Integrarea se reîncarcă pentru actualizarea entităților și a cardului.",
+            ])
+
+        persistent_notification.async_create(
+            hass,
+            "\n".join(summary_lines),
+            title="Car Manager România - import backup" if not dry_run else "Car Manager România - simulare import backup",
+            notification_id="car_manager_romania_import_data",
+        )
+
+        _LOGGER.info(
+            "Import Car Manager România %s din %s: vehicule +%s/~%s, istoric +%s/~%s",
+            "dry-run" if dry_run else "aplicat",
+            backup_path,
+            vehicles_added,
+            vehicles_updated,
+            history_added,
+            history_updated,
+        )
+
+        if not dry_run:
+            await hass.config_entries.async_reload(entry.entry_id)
+
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -1314,6 +1554,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_VALIDATE_BACKUP,
             async_validate_backup,
             schema=VALIDATE_BACKUP_SERVICE_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_IMPORT_DATA):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_IMPORT_DATA,
+            async_import_data,
+            schema=IMPORT_DATA_SERVICE_SCHEMA,
         )
     hass.data[DOMAIN]["services_registered"] = True
 
