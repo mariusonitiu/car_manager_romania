@@ -46,6 +46,7 @@ from .const import (
     SERVICE_DELETE_SERVICE_RECORD,
     SERVICE_UPDATE_SERVICE_RECORD,
     SERVICE_EXPORT_DATA,
+    SERVICE_VALIDATE_BACKUP,
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_VERSION_NOTIFICATIONS,
     MAINTENANCE_LAST_DATE,
@@ -372,6 +373,13 @@ EXPORT_DATA_SERVICE_SCHEMA = vol.Schema(
     }
 )
 
+VALIDATE_BACKUP_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Optional("filename", default="car_manager_romania_backup.json"): str,
+    }
+)
+
 
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -577,6 +585,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_UPDATE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_EXPORT_DATA)
+        and hass.services.has_service(DOMAIN, SERVICE_VALIDATE_BACKUP)
     ):
         return
 
@@ -1052,6 +1061,183 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         _LOGGER.info("Export Car Manager România salvat în %s", backup_path)
 
+    async def async_validate_backup(call: ServiceCall) -> None:
+        """Validate a local Car Manager România JSON backup without importing it."""
+
+        # Găsim entry-ul doar ca să validăm contextul. Nu modificăm datele integrației.
+        _find_loaded_config_entry(hass, call.data.get("entry_id"))
+
+        filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
+        if not filename:
+            filename = "car_manager_romania_backup.json"
+        if "/" in filename or "\\" in filename:
+            raise HomeAssistantError("Numele fișierului de backup nu trebuie să conțină cale sau directoare.")
+        if not filename.lower().endswith(".json"):
+            filename = f"{filename}.json"
+
+        backup_path = Path(hass.config.path(filename))
+
+        def _read_backup() -> str:
+            if not backup_path.exists():
+                raise FileNotFoundError(str(backup_path))
+            return backup_path.read_text(encoding="utf-8")
+
+        try:
+            backup_text = await hass.async_add_executor_job(_read_backup)
+        except FileNotFoundError as err:
+            raise HomeAssistantError(f"Fișierul de backup nu există: {backup_path}") from err
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(f"Nu am putut citi fișierul de backup: {err}") from err
+
+        try:
+            backup_data = json.loads(backup_text)
+        except json.JSONDecodeError as err:
+            raise HomeAssistantError(f"Fișierul nu este JSON valid: {err}") from err
+
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        if not isinstance(backup_data, dict):
+            errors.append("Structura principală trebuie să fie obiect JSON.")
+            backup_data = {}
+
+        if backup_data.get("schema") != "car_manager_romania_backup":
+            errors.append("Schema backup-ului nu este car_manager_romania_backup.")
+
+        schema_version = backup_data.get("schema_version")
+        if schema_version != 1:
+            errors.append(f"Versiune schemă nesuportată: {schema_version!r}. Versiunea acceptată este 1.")
+
+        vehicles = backup_data.get("vehicles")
+        if not isinstance(vehicles, list):
+            errors.append("Câmpul vehicles lipsește sau nu este listă.")
+            vehicles = []
+
+        service_history = backup_data.get("service_history")
+        if not isinstance(service_history, list):
+            errors.append("Câmpul service_history lipsește sau nu este listă.")
+            service_history = []
+
+        notification_state = backup_data.get("notification_state")
+        if notification_state is not None and not isinstance(notification_state, dict):
+            warnings.append("Câmpul notification_state nu este obiect JSON și va trebui ignorat la un import viitor.")
+
+        vehicle_ids: set[str] = set()
+        duplicate_vehicle_ids: set[str] = set()
+        active_count = 0
+        removed_count = 0
+        missing_vehicle_id_count = 0
+
+        for index, vehicle in enumerate(vehicles, start=1):
+            if not isinstance(vehicle, dict):
+                warnings.append(f"Autovehiculul #{index} nu este obiect JSON.")
+                continue
+
+            vehicle_id = str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+            if not vehicle_id:
+                missing_vehicle_id_count += 1
+            elif vehicle_id in vehicle_ids:
+                duplicate_vehicle_ids.add(vehicle_id)
+            else:
+                vehicle_ids.add(vehicle_id)
+
+            if bool(vehicle.get(CONF_REMOVED)):
+                removed_count += 1
+            else:
+                active_count += 1
+
+            if not str(vehicle.get(CONF_NAME, "")).strip():
+                warnings.append(f"Autovehiculul #{index} nu are nume.")
+
+        if missing_vehicle_id_count:
+            warnings.append(f"{missing_vehicle_id_count} autovehicul(e) nu au vehicle_id.")
+        if duplicate_vehicle_ids:
+            warnings.append("Există vehicle_id duplicate: " + ", ".join(sorted(duplicate_vehicle_ids)))
+
+        history_vehicle_refs: set[str] = set()
+        missing_record_id_count = 0
+        missing_record_vehicle_count = 0
+        restorable_count = 0
+
+        for index, record in enumerate(service_history, start=1):
+            if not isinstance(record, dict):
+                warnings.append(f"Intervenția #{index} nu este obiect JSON.")
+                continue
+
+            if not str(record.get("record_id", "")).strip():
+                missing_record_id_count += 1
+
+            record_vehicle_id = str(record.get(CONF_VEHICLE_ID, "")).strip()
+            if not record_vehicle_id:
+                missing_record_vehicle_count += 1
+            else:
+                history_vehicle_refs.add(record_vehicle_id)
+
+            if isinstance(record.get("previous_maintenance"), dict) and not bool(record.get("restored")):
+                restorable_count += 1
+
+        if missing_record_id_count:
+            warnings.append(f"{missing_record_id_count} intervenție/intervenții nu au record_id.")
+        if missing_record_vehicle_count:
+            warnings.append(f"{missing_record_vehicle_count} intervenție/intervenții nu au vehicle_id.")
+
+        unknown_history_refs = sorted(ref for ref in history_vehicle_refs if ref not in vehicle_ids)
+        if unknown_history_refs:
+            warnings.append(
+                "Există intervenții care referă autovehicule inexistente în backup: "
+                + ", ".join(unknown_history_refs[:5])
+                + ("..." if len(unknown_history_refs) > 5 else "")
+            )
+
+        exported_at = str(backup_data.get("exported_at", "necunoscut"))
+        backup_version = str(backup_data.get("integration_version", "necunoscut"))
+
+        from homeassistant.components import persistent_notification
+
+        if errors:
+            message = (
+                "Backup-ul Car Manager România NU este valid pentru import. Nu s-a modificat nimic.\n\n"
+                f"Fișier: `{backup_path}`\n\n"
+                "Erori:\n"
+                + "\n".join(f"- {error}" for error in errors)
+            )
+            title = "Car Manager România - backup invalid"
+            notification_id = "car_manager_romania_validate_backup_invalid"
+            _LOGGER.warning("Backup Car Manager România invalid: %s", "; ".join(errors))
+        else:
+            summary_lines = [
+                "Backup-ul Car Manager România este valid. Nu s-a modificat nimic.",
+                "",
+                f"Fișier: `{backup_path}`",
+                f"Exportat la: `{exported_at}`",
+                f"Versiune integrare la export: `{backup_version}`",
+                "",
+                "Conținut:",
+                f"- Autovehicule: {len(vehicles)} total, {active_count} active, {removed_count} dezactivate",
+                f"- Intervenții în istoric: {len(service_history)}",
+                f"- Intervenții restaurabile: {restorable_count}",
+            ]
+            if warnings:
+                summary_lines.extend(["", "Avertizări:"])
+                summary_lines.extend(f"- {warning}" for warning in warnings[:10])
+                if len(warnings) > 10:
+                    summary_lines.append(f"- ... încă {len(warnings) - 10} avertizări")
+            message = "\n".join(summary_lines)
+            title = "Car Manager România - backup valid"
+            notification_id = "car_manager_romania_validate_backup_valid"
+            _LOGGER.info(
+                "Backup Car Manager România validat: %s vehicule, %s intervenții",
+                len(vehicles),
+                len(service_history),
+            )
+
+        persistent_notification.async_create(
+            hass,
+            message,
+            title=title,
+            notification_id=notification_id,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -1121,6 +1307,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_EXPORT_DATA,
             async_export_data,
             schema=EXPORT_DATA_SERVICE_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_VALIDATE_BACKUP):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_VALIDATE_BACKUP,
+            async_validate_backup,
+            schema=VALIDATE_BACKUP_SERVICE_SCHEMA,
         )
     hass.data[DOMAIN]["services_registered"] = True
 

@@ -303,3 +303,23 @@ export_data:
       example: car_manager_romania_backup.json
       selector:
         text:
+
+
+validate_backup:
+  name: Validează backup JSON
+  description: Citește și verifică un backup JSON Car Manager România fără să importe sau să modifice datele existente. Rezultatul apare ca notificare persistentă.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    filename:
+      name: Nume fișier
+      description: Numele fișierului JSON din /config care trebuie verificat. Nu introduce directoare sau cale completă.
+      required: false
+      default: car_manager_romania_backup.json
+      example: car_manager_romania_backup.json
+      selector:
+        text:
