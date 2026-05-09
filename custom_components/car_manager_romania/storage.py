@@ -144,6 +144,27 @@ class CarManagerServiceHistoryStore:
                 await self._store.async_save({"records": self._records})
                 return
 
+    async def async_delete_record(self, record_id: str) -> bool:
+        """Delete one service history record and persist history.
+
+        This only removes the history row. It does not change vehicle maintenance
+        values. Use restore_service_record before deletion when the maintenance
+        update must be reverted.
+        """
+
+        await self.async_load()
+        original_count = len(self._records)
+        self._records = [
+            record
+            for record in self._records
+            if str(record.get("record_id", "")) != record_id
+        ]
+        if len(self._records) == original_count:
+            return False
+
+        await self._store.async_save({"records": self._records})
+        return True
+
 
 class CarManagerVehicleStore:
     """Store editable vehicle data outside the config entry options."""

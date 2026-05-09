@@ -352,17 +352,31 @@ class CarManagerRomaniaCard extends HTMLElement {
       record.service_name || "",
       record.cost ? `${record.cost} lei` : "",
     ].filter(Boolean).join(" · ");
-    const restored = record.restored ? `<span class="cmr-history-badge">restaurată</span>` : "";
-    const canRestore = recordId && record.update_maintenance && !record.restored;
+    const restored = Boolean(record.restored);
+    const canRestore = recordId && record.update_maintenance && !restored;
+    const statusBadge = restored
+      ? `<span class="cmr-history-badge cmr-history-badge-restored">restaurată</span>`
+      : record.update_maintenance
+        ? `<span class="cmr-history-badge cmr-history-badge-active">aplicată</span>`
+        : `<span class="cmr-history-badge cmr-history-badge-info">istoric</span>`;
+    const restoreButton = canRestore
+      ? `<button class="cmr-mini-action cmr-secondary" data-action="restore-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}">Restore</button>`
+      : "";
+    const deleteButton = recordId
+      ? `<button class="cmr-mini-action cmr-danger" data-action="delete-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}" data-updates-maintenance="${record.update_maintenance ? "1" : "0"}" data-restored="${restored ? "1" : "0"}">Șterge</button>`
+      : "";
 
     return `
-      <div class="cmr-history-row">
+      <div class="cmr-history-row ${restored ? "cmr-history-row-restored" : ""}">
         <div class="cmr-history-main">
-          <div class="cmr-history-title">${this._escape(title)} ${restored}</div>
+          <div class="cmr-history-title">${this._escape(title)} ${statusBadge}</div>
           <div class="cmr-row-muted">${this._escape(meta || this._recordTypeLabel(record.record_type))}</div>
           ${record.notes ? `<div class="cmr-history-notes">${this._escape(record.notes)}</div>` : ""}
         </div>
-        ${canRestore ? `<button class="cmr-mini-action cmr-secondary" data-action="restore-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}">Restore</button>` : ""}
+        <div class="cmr-history-actions">
+          ${restoreButton}
+          ${deleteButton}
+        </div>
       </div>
     `;
   }
@@ -722,6 +736,13 @@ class CarManagerRomaniaCard extends HTMLElement {
       button.addEventListener("click", () => this._restoreServiceRecord(button.dataset.recordId, button.dataset.vehicle));
     });
 
+    this.querySelectorAll('button[data-action="delete-service-record"]').forEach((button) => {
+      button.addEventListener("click", () => this._deleteServiceRecord(button.dataset.recordId, button.dataset.vehicle, {
+        updatesMaintenance: button.dataset.updatesMaintenance === "1",
+        restored: button.dataset.restored === "1",
+      }));
+    });
+
     this.querySelectorAll('button[data-action="remove-vehicle"]').forEach((button) => {
       button.addEventListener("click", () => {
         this._removeVehicle(button.dataset.vehicleId, button.dataset.vehicleName || "autovehiculul selectat", {
@@ -862,6 +883,30 @@ class CarManagerRomaniaCard extends HTMLElement {
       if (vehicleKey) this._serviceRecordMessage[vehicleKey] = "Restore efectuat. Integrarea se reîncarcă.";
     } catch (error) {
       if (vehicleKey) this._serviceRecordMessage[vehicleKey] = error?.message || "Nu am putut face restore.";
+    } finally {
+      this._serviceRecordBusy = null;
+      this.render();
+    }
+  }
+
+  async _deleteServiceRecord(recordId, vehicleKey, options = {}) {
+    if (!this._hass || !recordId || this._serviceRecordBusy) return;
+
+    const warning = options.updatesMaintenance && !options.restored
+      ? "Această intervenție pare aplicată în mentenanță. Ștergerea elimină doar rândul din istoric, nu revine la valorile anterioare. Pentru revenire, folosește mai întâi Restore, apoi Șterge. Continui?"
+      : "Ștergi această intervenție din istoric? Valorile de mentenanță ale autovehiculului nu se modifică.";
+    const confirmed = window.confirm(warning);
+    if (!confirmed) return;
+
+    this._serviceRecordBusy = vehicleKey || recordId;
+    if (vehicleKey) this._serviceRecordMessage[vehicleKey] = "";
+    this.render();
+
+    try {
+      await this._hass.callService("car_manager_romania", "delete_service_record", { record_id: recordId });
+      if (vehicleKey) this._serviceRecordMessage[vehicleKey] = "Intervenția a fost ștearsă din istoric. Integrarea se reîncarcă.";
+    } catch (error) {
+      if (vehicleKey) this._serviceRecordMessage[vehicleKey] = error?.message || "Nu am putut șterge intervenția.";
     } finally {
       this._serviceRecordBusy = null;
       this.render();
@@ -1327,7 +1372,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-history-title { font-weight: 800; font-size: 13px; }
       .cmr-history-notes { color: var(--secondary-text-color); font-size: 12px; margin-top: 3px; white-space: pre-wrap; }
       .cmr-history-empty { color: var(--secondary-text-color); font-size: 12px; padding: 6px 0; }
-      .cmr-history-badge { display: inline-block; margin-left: 5px; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--warning-color) 20%, transparent); color: var(--primary-text-color); font-size: 10px; }
+      .cmr-history-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: 0 0 auto; }
+      .cmr-history-row-restored { opacity: .78; }
+      .cmr-history-badge { display: inline-block; margin-left: 5px; padding: 2px 6px; border-radius: 999px; color: var(--primary-text-color); font-size: 10px; }
+      .cmr-history-badge-active { background: color-mix(in srgb, var(--success-color, #2e9d58) 22%, transparent); }
+      .cmr-history-badge-restored { background: color-mix(in srgb, var(--warning-color) 20%, transparent); }
+      .cmr-history-badge-info { background: color-mix(in srgb, var(--secondary-text-color) 16%, transparent); }
       .cmr-add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
       .cmr-add-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 0; border-top: 0; min-width: 0; }
       .cmr-add-field span { font-size: 12px; line-height: 1.2; }

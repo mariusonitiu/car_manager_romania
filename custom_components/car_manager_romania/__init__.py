@@ -42,6 +42,7 @@ from .const import (
     SERVICE_ADD_SERVICE_RECORD,
     SERVICE_RESTORE_SERVICE_RECORD,
     SERVICE_RESTORE_LAST_SERVICE_RECORD,
+    SERVICE_DELETE_SERVICE_RECORD,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
@@ -332,6 +333,13 @@ RESTORE_SERVICE_RECORD_SCHEMA = vol.Schema(
     }
 )
 
+DELETE_SERVICE_RECORD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("record_id"): str,
+    }
+)
+
 RESTORE_LAST_SERVICE_RECORD_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): str,
@@ -541,6 +549,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_ADD_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_SERVICE_RECORD)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD)
+        and hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD)
     ):
         return
 
@@ -885,6 +894,24 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         await _async_restore_service_record_snapshot(hass, entry, selected_record)
 
+    async def async_delete_service_record(call: ServiceCall) -> None:
+        """Delete one service/intervention history record only."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        history_store = entry.runtime_data.service_history_store
+
+        record_id = str(call.data["record_id"]).strip()
+        if not record_id:
+            raise HomeAssistantError("ID-ul intervenției este obligatoriu.")
+
+        deleted = await history_store.async_delete_record(record_id)
+        if not deleted:
+            raise HomeAssistantError("Intervenția selectată nu a fost găsită în istoric.")
+
+        await hass.config_entries.async_reload(entry.entry_id)
+
+        _LOGGER.info("Intervenție ștearsă din istoricul Car Manager România: %s", record_id)
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -926,6 +953,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_RESTORE_SERVICE_RECORD,
             async_restore_service_record,
             schema=RESTORE_SERVICE_RECORD_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_SERVICE_RECORD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DELETE_SERVICE_RECORD,
+            async_delete_service_record,
+            schema=DELETE_SERVICE_RECORD_SCHEMA,
         )
     if not hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD):
         hass.services.async_register(

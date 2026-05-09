@@ -184,6 +184,24 @@ restore_service_record:
       selector:
         text:
 
+delete_service_record:
+  name: Șterge intervenție din istoric
+  description: Șterge doar înregistrarea din istoric. Nu modifică valorile de mentenanță ale autovehiculului. Dacă intervenția a actualizat mentenanța și vrei să revii la valorile anterioare, folosește mai întâi restore.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    record_id:
+      name: ID intervenție
+      description: ID-ul intervenției care trebuie ștearsă din istoric.
+      required: true
+      example: rec_1234abcd5678
+      selector:
+        text:
+
 restore_last_service_record:
   name: Restaurează ultima intervenție
   description: Revine la valorile de mentenanță existente înainte de ultima intervenție restaurabilă pentru autovehiculul selectat. Poate fi filtrată după tipul intervenției.
