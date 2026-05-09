@@ -1,4 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
+  static get version() { return "0.9.1"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -315,18 +316,32 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _renderServiceHistory(vehicle) {
-    const statusEntity = vehicle.entities.find((entity) => {
-      const attrs = entity.stateObj?.attributes || {};
-      return entity.entityId.startsWith("sensor.") && Array.isArray(attrs.service_history);
-    });
-    const records = statusEntity?.stateObj?.attributes?.service_history || [];
-    const vehicleKey = vehicle.vehicle_id || vehicle.key;
+    let records = [];
+    try {
+      const statusEntity = vehicle.entities.find((entity) => {
+        const attrs = entity.stateObj?.attributes || {};
+        return entity.entityId.startsWith("sensor.") && Array.isArray(attrs.service_history);
+      });
+      const rawRecords = statusEntity?.stateObj?.attributes?.service_history;
+      records = Array.isArray(rawRecords) ? rawRecords.filter((record) => record && typeof record === "object") : [];
+    } catch (error) {
+      console.warn("Car Manager România: nu am putut citi istoricul intervențiilor", error);
+      records = [];
+    }
+
+    const vehicleKey = vehicle.vehicle_id || vehicle.vin || vehicle.plate || vehicle.key || vehicle.label || "";
     const open = this._serviceFormOpen.has(vehicleKey);
     const message = this._serviceRecordMessage[vehicleKey] || "";
 
-    const rows = records.length
-      ? records.slice(0, 5).map((record) => this._renderServiceHistoryRow(record, vehicleKey)).join("")
-      : `<div class="cmr-history-empty">Nu există intervenții salvate încă.</div>`;
+    let rows = "";
+    try {
+      rows = records.length
+        ? records.slice(0, 5).map((record) => this._renderServiceHistoryRow(record, vehicleKey)).join("")
+        : `<div class="cmr-history-empty">Nu există intervenții salvate încă.</div>`;
+    } catch (error) {
+      console.warn("Car Manager România: nu am putut afișa rândurile din istoricul intervențiilor", error);
+      rows = `<div class="cmr-history-empty">Istoricul există, dar nu a putut fi afișat. Verifică jurnalul Home Assistant.</div>`;
+    }
 
     return `
       <div class="cmr-section cmr-history-section">
