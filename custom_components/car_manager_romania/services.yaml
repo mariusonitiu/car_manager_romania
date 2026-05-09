@@ -39,7 +39,7 @@ remove_vehicle:
   description: Dezactivează un autovehicul din Car Manager România. Datele rămân în storage pentru siguranță, dar autovehiculul nu mai este încărcat în card și entități după reîncărcarea integrării.
   fields:
     vehicle_id:
-      name: ID intern autovehicul
+      name: Autovehicul
       description: ID-ul intern stabil al autovehiculului care trebuie dezactivat.
       required: true
       example: sb01abc
@@ -51,7 +51,7 @@ restore_vehicle:
   description: Reactivează un autovehicul dezactivat anterior în Car Manager România. Entitățile lui vor fi create din nou după reîncărcarea integrării.
   fields:
     vehicle_id:
-      name: ID intern autovehicul
+      name: Autovehicul
       description: ID-ul intern stabil al autovehiculului care trebuie reactivat.
       required: true
       example: sb01abc
@@ -80,8 +80,8 @@ add_service_record:
       selector:
         text:
     vehicle_id:
-      name: ID intern autovehicul
-      description: ID-ul intern stabil al autovehiculului pentru care se adaugă intervenția.
+      name: Autovehicul
+      description: ID-ul intern stabil, VIN-ul, numărul de înmatriculare sau numele autovehiculului pentru care se adaugă intervenția.
       required: true
       example: sb01abc
       selector:
@@ -165,3 +165,51 @@ add_service_record:
       default: true
       selector:
         boolean:
+
+restore_service_record:
+  name: Restaurează intervenție din istoric
+  description: Revine la valorile de mentenanță existente înainte de intervenția selectată. Funcționează pentru intervențiile create după introducerea snapshot-ului de restore.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    record_id:
+      name: ID intervenție
+      description: ID-ul intervenției care trebuie restaurată.
+      required: true
+      example: rec_1234abcd5678
+      selector:
+        text:
+
+restore_last_service_record:
+  name: Restaurează ultima intervenție
+  description: Revine la valorile de mentenanță existente înainte de ultima intervenție restaurabilă pentru autovehiculul selectat. Poate fi filtrată după tipul intervenției.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      description: ID-ul intern stabil, VIN-ul, numărul de înmatriculare sau numele autovehiculului.
+      required: true
+      example: sb01abc
+      selector:
+        text:
+    record_type:
+      name: Tip intervenție
+      description: Opțional. Dacă este completat, restaurează ultima intervenție de acest tip.
+      required: false
+      selector:
+        select:
+          options:
+            - service
+            - gearbox_oil
+            - timing_belt
+            - brake_fluid
+            - coolant

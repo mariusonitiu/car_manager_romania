@@ -123,6 +123,27 @@ class CarManagerServiceHistoryStore:
         self._records.append(deepcopy(record))
         await self._store.async_save({"records": self._records})
 
+    async def async_get_record(self, record_id: str) -> dict[str, Any] | None:
+        """Return one service history record by ID."""
+
+        await self.async_load()
+        for record in self._records:
+            if str(record.get("record_id", "")) == record_id:
+                return deepcopy(record)
+        return None
+
+    async def async_update_record(self, record_id: str, changes: dict[str, Any]) -> None:
+        """Update one service history record and persist history."""
+
+        await self.async_load()
+        for index, record in enumerate(self._records):
+            if str(record.get("record_id", "")) == record_id:
+                updated_record = deepcopy(record)
+                updated_record.update(deepcopy(changes))
+                self._records[index] = updated_record
+                await self._store.async_save({"records": self._records})
+                return
+
 
 class CarManagerVehicleStore:
     """Store editable vehicle data outside the config entry options."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date as dt_date, datetime, timedelta
 import inspect
 import logging
 from uuid import uuid4
@@ -40,13 +40,15 @@ from .const import (
     SERVICE_RESTORE_VEHICLE,
     SERVICE_RESTORE_ALL_VEHICLES,
     SERVICE_ADD_SERVICE_RECORD,
+    SERVICE_RESTORE_SERVICE_RECORD,
+    SERVICE_RESTORE_LAST_SERVICE_RECORD,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     MAINTENANCE_TYPES,
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
-from .maintenance import normalize_vehicles, set_maintenance_value
+from .maintenance import get_maintenance_value, normalize_vehicles, set_maintenance_value
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
 from .storage import CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
@@ -323,6 +325,21 @@ ADD_SERVICE_RECORD_SCHEMA = vol.Schema(
     }
 )
 
+RESTORE_SERVICE_RECORD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("record_id"): str,
+    }
+)
+
+RESTORE_LAST_SERVICE_RECORD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Optional("record_type"): vol.In(list(MAINTENANCE_TYPES.keys())),
+    }
+)
+
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
@@ -367,6 +384,150 @@ def _find_loaded_config_entry(hass: HomeAssistant, entry_id: str | None = None) 
     )
 
 
+def _find_vehicle_by_id(vehicles: list[dict[str, Any]], vehicle_id: str) -> dict[str, Any] | None:
+    """Return a mutable vehicle dictionary by internal ID."""
+
+    for vehicle in vehicles:
+        if not isinstance(vehicle, dict):
+            continue
+        if str(vehicle.get(CONF_VEHICLE_ID, "")) == vehicle_id:
+            return vehicle
+    return None
+
+
+def _normalize_vehicle_reference(value: Any) -> str:
+    """Normalize a vehicle reference for tolerant service matching."""
+
+    return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
+
+
+def _find_vehicle_by_reference(vehicles: list[dict[str, Any]], reference: str) -> dict[str, Any] | None:
+    """Return a mutable vehicle dictionary by vehicle_id, VIN, plate or name."""
+
+    wanted = _normalize_vehicle_reference(reference)
+    if not wanted:
+        return None
+
+    for vehicle in vehicles:
+        if not isinstance(vehicle, dict):
+            continue
+
+        candidates = (
+            vehicle.get(CONF_VEHICLE_ID),
+            vehicle.get(CONF_VIN),
+            vehicle.get(CONF_LICENSE_PLATE),
+            vehicle.get(CONF_NAME),
+        )
+        if any(_normalize_vehicle_reference(candidate) == wanted for candidate in candidates):
+            return vehicle
+
+    return None
+
+
+def _vehicle_internal_id(vehicle: dict[str, Any]) -> str:
+    """Return the stable internal ID from a vehicle dictionary."""
+
+    vehicle_id = str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
+    if not vehicle_id:
+        raise HomeAssistantError("Autovehiculul selectat nu are ID intern stabil.")
+    return vehicle_id
+
+
+def _maintenance_snapshot(vehicle: dict[str, Any], maintenance_type: str) -> dict[str, Any]:
+    """Return the current maintenance values that may be changed by a service record."""
+
+    return {
+        "maintenance_type": maintenance_type,
+        MAINTENANCE_LAST_DATE: get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_DATE),
+        MAINTENANCE_LAST_KM: get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM),
+        CONF_KM: vehicle.get(CONF_KM),
+    }
+
+
+def _apply_maintenance_snapshot(vehicle: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    """Restore maintenance values from a previous snapshot."""
+
+    maintenance_type = str(snapshot.get("maintenance_type", "")).strip()
+    if maintenance_type not in MAINTENANCE_TYPES:
+        raise HomeAssistantError("Snapshotul nu conține un tip de mentenanță valid.")
+
+    set_maintenance_value(
+        vehicle,
+        maintenance_type,
+        MAINTENANCE_LAST_DATE,
+        snapshot.get(MAINTENANCE_LAST_DATE),
+    )
+    set_maintenance_value(
+        vehicle,
+        maintenance_type,
+        MAINTENANCE_LAST_KM,
+        snapshot.get(MAINTENANCE_LAST_KM),
+    )
+
+    if CONF_KM in snapshot and snapshot.get(CONF_KM) is not None:
+        vehicle[CONF_KM] = snapshot.get(CONF_KM)
+
+
+async def _async_restore_service_record_snapshot(
+    hass: HomeAssistant,
+    entry: CarManagerConfigEntry,
+    record: dict[str, Any],
+) -> None:
+    """Restore vehicle maintenance values using a history record snapshot."""
+
+    vehicle_store = entry.runtime_data.vehicle_store
+    history_store = entry.runtime_data.service_history_store
+
+    record_id = str(record.get("record_id", "")).strip()
+    if not record_id:
+        raise HomeAssistantError("Intervenția selectată nu are record_id valid.")
+
+    if bool(record.get("restored")):
+        raise HomeAssistantError("Această intervenție a fost deja restaurată.")
+
+    previous_maintenance = record.get("previous_maintenance")
+    if not isinstance(previous_maintenance, dict):
+        raise HomeAssistantError(
+            "Intervenția selectată nu are snapshot anterior. A fost probabil creată înainte de versiunea cu restore."
+        )
+
+    vehicle_id = str(record.get(CONF_VEHICLE_ID, "")).strip()
+    if not vehicle_id:
+        raise HomeAssistantError("Intervenția selectată nu are autovehicul asociat.")
+
+    stored_vehicles = await vehicle_store.async_get_vehicles()
+    option_vehicles = entry.options.get(
+        CONF_VEHICLES,
+        entry.data.get(CONF_VEHICLES, []),
+    )
+    vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+    found_vehicle = _find_vehicle_by_id(vehicles, vehicle_id)
+    if found_vehicle is None:
+        raise HomeAssistantError("Autovehiculul intervenției nu a fost găsit în Car Manager România.")
+
+    _apply_maintenance_snapshot(found_vehicle, previous_maintenance)
+
+    normalized_vehicles, _ = normalize_vehicles(vehicles)
+    active_vehicles = _active_vehicles(normalized_vehicles)
+    await vehicle_store.async_save_vehicles(normalized_vehicles)
+    await history_store.async_update_record(
+        record_id,
+        {
+            "restored": True,
+            "restored_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
+
+    entry.runtime_data.vehicles = active_vehicles
+    entry.runtime_data.all_vehicles = normalized_vehicles
+    dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+    from .notify import async_check_maintenance_notifications
+
+    hass.async_create_task(async_check_maintenance_notifications(hass, entry))
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
 async def _async_register_services(hass: HomeAssistant) -> None:
     """Register integration services once."""
 
@@ -378,6 +539,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_VEHICLE)
         and hass.services.has_service(DOMAIN, SERVICE_RESTORE_ALL_VEHICLES)
         and hass.services.has_service(DOMAIN, SERVICE_ADD_SERVICE_RECORD)
+        and hass.services.has_service(DOMAIN, SERVICE_RESTORE_SERVICE_RECORD)
+        and hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD)
     ):
         return
 
@@ -576,9 +739,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not record_type:
             raise HomeAssistantError("Tipul intervenției este obligatoriu.")
 
-        record_date = str(call.data.get("date") or date.today().isoformat()).strip()
+        record_date = str(call.data.get("date") or dt_date.today().isoformat()).strip()
         try:
-            date.fromisoformat(record_date)
+            dt_date.fromisoformat(record_date)
         except ValueError as err:
             raise HomeAssistantError("Data intervenției trebuie să fie în format YYYY-MM-DD.") from err
 
@@ -593,16 +756,40 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         )
         vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
 
-        found_vehicle: dict[str, Any] | None = None
-        for vehicle in vehicles:
-            if not isinstance(vehicle, dict):
-                continue
-            if str(vehicle.get(CONF_VEHICLE_ID, "")) == vehicle_id:
-                found_vehicle = vehicle
-                break
-
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_id)
         if found_vehicle is None:
-            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+            raise HomeAssistantError(
+                "Autovehiculul selectat nu a fost găsit în Car Manager România. "
+                "Poți folosi ID-ul intern, VIN-ul, numărul de înmatriculare sau numele mașinii."
+            )
+
+        vehicle_id = _vehicle_internal_id(found_vehicle)
+
+        update_maintenance = bool(call.data.get("update_maintenance", True))
+        previous_maintenance = None
+        updated_maintenance = None
+
+        if update_maintenance and record_type in MAINTENANCE_TYPES:
+            previous_maintenance = _maintenance_snapshot(found_vehicle, record_type)
+
+            set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_DATE, record_date)
+            if km_value > 0:
+                set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_KM, km_value)
+                if int(found_vehicle.get(CONF_KM, 0) or 0) < km_value:
+                    found_vehicle[CONF_KM] = km_value
+
+            updated_maintenance = _maintenance_snapshot(found_vehicle, record_type)
+
+            normalized_vehicles, _ = normalize_vehicles(vehicles)
+            active_vehicles = _active_vehicles(normalized_vehicles)
+            await vehicle_store.async_save_vehicles(normalized_vehicles)
+            entry.runtime_data.vehicles = active_vehicles
+            entry.runtime_data.all_vehicles = normalized_vehicles
+            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+            from .notify import async_check_maintenance_notifications
+
+            hass.async_create_task(async_check_maintenance_notifications(hass, entry))
 
         record = {
             "record_id": f"rec_{uuid4().hex[:12]}",
@@ -615,27 +802,16 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "cost": float(call.data.get("cost", 0) or 0),
             "invoice_number": str(call.data.get("invoice_number", "")).strip(),
             "notes": str(call.data.get("notes", "")).strip(),
+            "update_maintenance": update_maintenance,
         }
+        if previous_maintenance is not None:
+            record["previous_maintenance"] = previous_maintenance
+        if updated_maintenance is not None:
+            record["updated_maintenance"] = updated_maintenance
+
         await history_store.async_add_record(record)
 
-        update_maintenance = bool(call.data.get("update_maintenance", True))
         if update_maintenance and record_type in MAINTENANCE_TYPES:
-            set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_DATE, record_date)
-            if km_value > 0:
-                set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_KM, km_value)
-                if int(found_vehicle.get(CONF_KM, 0) or 0) < km_value:
-                    found_vehicle[CONF_KM] = km_value
-
-            normalized_vehicles, _ = normalize_vehicles(vehicles)
-            active_vehicles = _active_vehicles(normalized_vehicles)
-            await vehicle_store.async_save_vehicles(normalized_vehicles)
-            entry.runtime_data.vehicles = active_vehicles
-            entry.runtime_data.all_vehicles = normalized_vehicles
-            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
-
-            from .notify import async_check_maintenance_notifications
-
-            hass.async_create_task(async_check_maintenance_notifications(hass, entry))
             await hass.config_entries.async_reload(entry.entry_id)
 
         _LOGGER.info(
@@ -643,6 +819,72 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             record_type,
             vehicle_id,
         )
+
+    async def async_restore_service_record(call: ServiceCall) -> None:
+        """Restore maintenance values changed by one service history record."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        history_store = entry.runtime_data.service_history_store
+
+        record_id = str(call.data["record_id"]).strip()
+        if not record_id:
+            raise HomeAssistantError("ID-ul intervenției este obligatoriu.")
+
+        record = await history_store.async_get_record(record_id)
+        if record is None:
+            raise HomeAssistantError("Intervenția selectată nu a fost găsită în istoric.")
+
+        await _async_restore_service_record_snapshot(hass, entry, record)
+
+    async def async_restore_last_service_record(call: ServiceCall) -> None:
+        """Restore the last restorable maintenance update for a vehicle."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        history_store = entry.runtime_data.service_history_store
+
+        vehicle_id = str(call.data[CONF_VEHICLE_ID]).strip()
+        if not vehicle_id:
+            raise HomeAssistantError("Referința autovehiculului este obligatorie.")
+
+        vehicle_store = entry.runtime_data.vehicle_store
+        stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_id)
+        if found_vehicle is None:
+            raise HomeAssistantError(
+                "Autovehiculul selectat nu a fost găsit în Car Manager România. "
+                "Poți folosi ID-ul intern, VIN-ul, numărul de înmatriculare sau numele mașinii."
+            )
+        vehicle_id = _vehicle_internal_id(found_vehicle)
+
+        requested_type = call.data.get("record_type")
+        if requested_type is not None:
+            requested_type = str(requested_type).strip()
+
+        records = await history_store.async_get_records()
+        selected_record: dict[str, Any] | None = None
+        for record in reversed(records):
+            if str(record.get(CONF_VEHICLE_ID, "")) != vehicle_id:
+                continue
+            if requested_type and str(record.get("record_type", "")) != requested_type:
+                continue
+            if bool(record.get("restored")):
+                continue
+            if not isinstance(record.get("previous_maintenance"), dict):
+                continue
+            selected_record = record
+            break
+
+        if selected_record is None:
+            raise HomeAssistantError(
+                "Nu există nicio intervenție restaurabilă pentru autovehiculul selectat."
+            )
+
+        await _async_restore_service_record_snapshot(hass, entry, selected_record)
 
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
@@ -678,6 +920,20 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             SERVICE_ADD_SERVICE_RECORD,
             async_add_service_record,
             schema=ADD_SERVICE_RECORD_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_RESTORE_SERVICE_RECORD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESTORE_SERVICE_RECORD,
+            async_restore_service_record,
+            schema=RESTORE_SERVICE_RECORD_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_RESTORE_LAST_SERVICE_RECORD):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESTORE_LAST_SERVICE_RECORD,
+            async_restore_last_service_record,
+            schema=RESTORE_LAST_SERVICE_RECORD_SCHEMA,
         )
     hass.data[DOMAIN]["services_registered"] = True
 
