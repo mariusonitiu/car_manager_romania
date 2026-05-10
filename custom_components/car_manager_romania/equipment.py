@@ -11,9 +11,21 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_VEHICLE_ID,
+    EQUIPMENT_TYPE_FIRE_EXTINGUISHER,
+    EQUIPMENT_TYPE_FIRST_AID_KIT,
+    EQUIPMENT_TYPE_REFLECTIVE_VEST,
+    EQUIPMENT_TYPE_WARNING_TRIANGLES,
     EQUIPMENT_TYPES,
     STORAGE_KEY_EQUIPMENT_ITEMS,
     STORAGE_VERSION_EQUIPMENT_ITEMS,
+)
+
+
+MANDATORY_EQUIPMENT_TYPES: tuple[str, ...] = (
+    EQUIPMENT_TYPE_FIRST_AID_KIT,
+    EQUIPMENT_TYPE_FIRE_EXTINGUISHER,
+    EQUIPMENT_TYPE_WARNING_TRIANGLES,
+    EQUIPMENT_TYPE_REFLECTIVE_VEST,
 )
 
 
@@ -118,6 +130,7 @@ def normalize_equipment_item(raw: dict[str, Any]) -> dict[str, Any]:
         "expiry_date": str(raw.get("expiry_date") or "").strip(),
         "cost": round(cost, 2),
         "present": bool(raw.get("present", True)),
+        "ignored": bool(raw.get("ignored", False)),
         "storage_location": str(raw.get("storage_location") or "").strip(),
         "notes": str(raw.get("notes") or "").strip(),
         "status": status,
@@ -130,14 +143,83 @@ def equipment_items_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> list[dic
     store = getattr(entry.runtime_data, "equipment_item_store", None)
     records = getattr(store, "_items", []) if store is not None else []
     result = [normalize_equipment_item(item) for item in records if isinstance(item, dict) and str(item.get(CONF_VEHICLE_ID, "")) == vehicle_id]
-    result.sort(key=lambda item: (str(item.get("expiry_date") or "9999-12-31"), str(item.get("equipment_type_label", ""))))
+    result.sort(
+        key=lambda item: (
+            bool(item.get("ignored", False)),
+            str(item.get("expiry_date") or "9999-12-31"),
+            str(item.get("equipment_type_label", "")),
+        )
+    )
     return result
+
+
+def equipment_issues_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return critical and warning safety-equipment issues for one vehicle."""
+
+    critical_items: list[dict[str, Any]] = []
+    warning_items: list[dict[str, Any]] = []
+    items = equipment_items_for_vehicle(entry, vehicle)
+    active_items = [item for item in items if not bool(item.get("ignored", False))]
+    ignored_types = {str(item.get("equipment_type", "")) for item in items if bool(item.get("ignored", False))}
+
+    for equipment_type in MANDATORY_EQUIPMENT_TYPES:
+        if equipment_type in ignored_types:
+            continue
+        matching_items = [item for item in active_items if str(item.get("equipment_type", "")) == equipment_type]
+        label = equipment_type_label(equipment_type)
+        if not matching_items:
+            critical_items.append(
+                {
+                    "category": "equipment",
+                    "key": equipment_type,
+                    "label": label,
+                    "status": "neconfigurat",
+                    "days_remaining": None,
+                    "km_remaining": None,
+                    "detail": "lipsește din evidența mașinii",
+                }
+            )
+            continue
+        if not any(bool(item.get("present", False)) for item in matching_items):
+            critical_items.append(
+                {
+                    "category": "equipment",
+                    "key": equipment_type,
+                    "label": label,
+                    "status": "lipsă",
+                    "days_remaining": None,
+                    "km_remaining": None,
+                    "detail": "marcat ca lipsă",
+                }
+            )
+
+    for item in active_items:
+        status = str(item.get("status", ""))
+        if status not in ("expirat", "critic", "în curând"):
+            continue
+        issue = {
+            "category": "equipment",
+            "key": str(item.get("item_id") or item.get("equipment_type") or "equipment"),
+            "label": str(item.get("equipment_type_label") or "Echipament"),
+            "status": status,
+            "days_remaining": item.get("days_remaining"),
+            "km_remaining": None,
+            "detail": f"{status}" + (f" · {item.get('days_remaining')} zile" if item.get("days_remaining") is not None else ""),
+        }
+        if status == "expirat":
+            critical_items.append(issue)
+        else:
+            warning_items.append(issue)
+
+    return critical_items, warning_items
 
 
 def current_year_equipment_cost_total(entry: Any, vehicle: dict[str, Any]) -> float:
     year = dt_date.today().year
     total = 0.0
     for item in equipment_items_for_vehicle(entry, vehicle):
+        if bool(item.get("ignored", False)):
+            continue
         purchase_date = _parse_date(item.get("purchase_date"))
         if purchase_date and purchase_date.year == year:
             total += float(item.get("cost", 0) or 0)

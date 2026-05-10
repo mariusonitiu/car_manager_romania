@@ -537,6 +537,7 @@ ADD_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
         vol.Optional("expiry_date", default=""): str,
         vol.Optional("cost", default=0): vol.Coerce(float),
         vol.Optional("present", default=True): bool,
+        vol.Optional("ignored", default=False): bool,
         vol.Optional("storage_location", default=""): str,
         vol.Optional("notes", default=""): str,
     }
@@ -553,6 +554,7 @@ UPDATE_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
         vol.Optional("expiry_date", default=""): str,
         vol.Optional("cost", default=0): vol.Coerce(float),
         vol.Optional("present", default=True): bool,
+        vol.Optional("ignored", default=False): bool,
         vol.Optional("storage_location", default=""): str,
         vol.Optional("notes", default=""): str,
     }
@@ -2443,6 +2445,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "expiry_date": call.data.get("expiry_date", ""),
             "cost": call.data.get("cost", 0),
             "present": call.data.get("present", True),
+            "ignored": call.data.get("ignored", False),
             "storage_location": call.data.get("storage_location", ""),
             "notes": call.data.get("notes", ""),
         })
@@ -2473,6 +2476,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "expiry_date": call.data.get("expiry_date", ""),
             "cost": call.data.get("cost", 0),
             "present": call.data.get("present", True),
+            "ignored": call.data.get("ignored", False),
             "storage_location": call.data.get("storage_location", ""),
             "notes": call.data.get("notes", ""),
         })

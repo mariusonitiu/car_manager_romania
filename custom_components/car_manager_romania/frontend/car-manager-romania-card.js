@@ -1933,6 +1933,18 @@ class CarManagerRomaniaCard extends HTMLElement {
       button.addEventListener("click", () => this._deleteEquipmentItem(button.dataset.itemId, button.dataset.vehicle, button.dataset.equipmentLabel));
     });
 
+    this.querySelectorAll('button[data-action="prepare-missing-equipment"]').forEach((button) => {
+      button.addEventListener("click", () => this._prepareMissingEquipment(button.dataset.vehicle, button.dataset.equipmentType));
+    });
+
+    this.querySelectorAll('button[data-action="ignore-equipment-type"]').forEach((button) => {
+      button.addEventListener("click", () => this._ignoreEquipmentType(button.dataset.vehicle, button.dataset.vehicleRef, button.dataset.equipmentType, button.dataset.equipmentLabel));
+    });
+
+    this.querySelectorAll('button[data-action="reactivate-equipment-type"]').forEach((button) => {
+      button.addEventListener("click", () => this._reactivateEquipmentType(button.dataset.itemId, button.dataset.vehicle, button.dataset.equipmentLabel));
+    });
+
     this.querySelectorAll('form[data-form="fuel-receipt"]').forEach((form) => {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -2158,10 +2170,11 @@ class CarManagerRomaniaCard extends HTMLElement {
     const summaries = this._equipmentVehicleFilter === "all"
       ? allSummaries
       : allSummaries.filter((summary) => summary.key === this._equipmentVehicleFilter);
-    const totalItems = summaries.reduce((sum, item) => sum + item.items.length, 0);
+    const totalItems = summaries.reduce((sum, item) => sum + item.activeItems.length, 0);
     const presentItems = summaries.reduce((sum, item) => sum + item.presentItems.length, 0);
     const expiredItems = summaries.reduce((sum, item) => sum + item.expiredItems.length, 0);
     const soonItems = summaries.reduce((sum, item) => sum + item.soonItems.length, 0);
+    const missingItems = summaries.reduce((sum, item) => sum + item.missingMandatory.length, 0);
     const totalAnnual = summaries.reduce((sum, item) => sum + item.yearCost, 0);
     return `
       <section class="cmr-costs-panel">
@@ -2177,7 +2190,7 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-cost-summary-grid">
           ${this._renderCostSummaryCard("Echipamente", `${totalItems}`, this._equipmentVehicleFilter === "all" ? "Total elemente salvate" : "Elemente pentru mașina selectată")}
           ${this._renderCostSummaryCard("Prezente", `${presentItems}`, "Marcate ca existente în mașină")}
-          ${this._renderCostSummaryCard("Expirate", `${expiredItems}`, soonItems ? `${soonItems} expiră în 90 zile` : "fără alerte apropiate")}
+          ${this._renderCostSummaryCard("Alerte", `${expiredItems + soonItems + missingItems}`, missingItems ? `${missingItems} lipsă / neconfigurate` : (soonItems ? `${soonItems} expiră în 90 zile` : "fără alerte apropiate"))}
           ${this._renderCostSummaryCard("Cost an curent", totalAnnual, "După data cumpărării")}
         </div>
         ${summaries.map((summary) => this._renderEquipmentVehiclePanel(summary)).join("")}
@@ -2198,23 +2211,63 @@ class CarManagerRomaniaCard extends HTMLElement {
     `;
   }
 
+  _mandatoryEquipmentTypes() {
+    return [
+      ["first_aid_kit", "Trusă medicală"],
+      ["fire_extinguisher", "Stingător"],
+      ["warning_triangles", "Triunghiuri reflectorizante"],
+      ["reflective_vest", "Vestă reflectorizantă"],
+    ];
+  }
+
+  _equipmentTypeLabel(type) {
+    const found = this._equipmentTypeList().find(([value]) => value === type);
+    return found ? found[1] : (type || "Echipament");
+  }
+
+  _equipmentTypeList() {
+    return [
+      ["first_aid_kit", "Trusă medicală"],
+      ["fire_extinguisher", "Stingător"],
+      ["warning_triangles", "Triunghiuri reflectorizante"],
+      ["reflective_vest", "Vestă reflectorizantă"],
+      ["spare_wheel", "Roată de rezervă"],
+      ["puncture_kit", "Kit pană"],
+      ["compressor", "Compresor"],
+      ["jack", "Cric"],
+      ["wheel_wrench", "Cheie roți"],
+      ["jump_cables", "Cabluri pornire"],
+      ["snow_chains", "Lanțuri antiderapante"],
+      ["other", "Alt echipament"],
+    ];
+  }
+
   _equipmentSummaryForVehicle(vehicle) {
     const attrs = this._vehicleStatusAttributes(vehicle);
     const items = Array.isArray(attrs.equipment_items) ? attrs.equipment_items : [];
+    const activeItems = items.filter((item) => item && !item.ignored);
+    const ignoredItems = items.filter((item) => item && item.ignored);
+    const ignoredTypes = new Set(ignoredItems.map((item) => item.equipment_type).filter(Boolean));
     const currentYear = new Date().getFullYear();
-    const yearCost = items.reduce((sum, item) => {
+    const yearCost = activeItems.reduce((sum, item) => {
       const parts = this._dateParts(item.purchase_date);
       return sum + (parts && parts.year === currentYear ? this._toNumber(item.cost) : 0);
     }, 0);
-    const expiredItems = items.filter((item) => item && item.status === "expirat");
-    const soonItems = items.filter((item) => item && (item.status === "critic" || item.status === "în curând"));
+    const expiredItems = activeItems.filter((item) => item && item.status === "expirat");
+    const soonItems = activeItems.filter((item) => item && (item.status === "critic" || item.status === "în curând"));
+    const missingMandatory = this._mandatoryEquipmentTypes()
+      .filter(([type]) => !ignoredTypes.has(type) && !activeItems.some((item) => item.equipment_type === type))
+      .map(([type, label]) => ({ equipment_type: type, equipment_type_label: label }));
     return {
       vehicle,
       key: vehicle.vehicle_id || vehicle.key || vehicle.label,
       label: vehicle.label || "Autovehicul",
       plate: vehicle.plate || "",
       items,
-      presentItems: items.filter((item) => item && item.present),
+      activeItems,
+      ignoredItems,
+      missingMandatory,
+      presentItems: activeItems.filter((item) => item && item.present),
       expiredItems,
       soonItems,
       yearCost,
@@ -2234,8 +2287,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           <button class="cmr-mini-action" type="button" data-action="toggle-equipment-form" data-vehicle="${this._escape(summary.key)}">${open ? "Închide" : "Adaugă"}</button>
         </div>
         <div class="cmr-cost-summary-grid cmr-fuel-summary-grid">
-          ${this._renderCostSummaryCard("Elemente", `${summary.items.length}`, `${summary.presentItems.length} prezente`)}
-          ${this._renderCostSummaryCard("Alerte", `${summary.expiredItems.length + summary.soonItems.length}`, `${summary.expiredItems.length} expirate`)}
+          ${this._renderCostSummaryCard("Elemente", `${summary.activeItems.length}`, `${summary.presentItems.length} prezente`)}
+          ${this._renderCostSummaryCard("Alerte", `${summary.expiredItems.length + summary.soonItems.length + summary.missingMandatory.length}`, summary.missingMandatory.length ? `${summary.missingMandatory.length} lipsă / neconfigurate` : `${summary.expiredItems.length} expirate`)}
           ${this._renderCostSummaryCard("Cost an curent", summary.yearCost, "după data cumpărării")}
         </div>
         ${open ? this._renderEquipmentForm(summary.vehicle) : ""}
@@ -2246,22 +2299,8 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _equipmentTypeOptions(selected) {
-    const options = [
-      ["first_aid_kit", "Trusă medicală"],
-      ["fire_extinguisher", "Stingător"],
-      ["warning_triangles", "Triunghiuri reflectorizante"],
-      ["reflective_vest", "Vestă reflectorizantă"],
-      ["spare_wheel", "Roată de rezervă"],
-      ["puncture_kit", "Kit pană"],
-      ["compressor", "Compresor"],
-      ["jack", "Cric"],
-      ["wheel_wrench", "Cheie roți"],
-      ["jump_cables", "Cabluri pornire"],
-      ["snow_chains", "Lanțuri antiderapante"],
-      ["other", "Alt echipament"],
-    ];
     const selectedValue = selected || "first_aid_kit";
-    return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+    return this._equipmentTypeList().map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
   }
 
   _renderEquipmentForm(vehicle) {
@@ -2285,9 +2324,62 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _renderEquipmentItems(summary) {
-    const items = Array.isArray(summary.items) ? summary.items : [];
-    if (!items.length) return `<div class="cmr-history-empty">Nu există echipamente salvate pentru acest autovehicul.</div>`;
-    return `<div class="cmr-cost-list">${items.map((item) => this._renderEquipmentItem(summary, item)).join("")}</div>`;
+    const activeItems = Array.isArray(summary.activeItems) ? summary.activeItems : [];
+    const ignoredItems = Array.isArray(summary.ignoredItems) ? summary.ignoredItems : [];
+    const missingMandatory = Array.isArray(summary.missingMandatory) ? summary.missingMandatory : [];
+    const parts = [];
+    if (missingMandatory.length) {
+      parts.push(`<div class="cmr-equipment-missing">
+        <div class="cmr-row-muted">Echipamente obligatorii lipsă / neconfigurate</div>
+        ${missingMandatory.map((item) => this._renderMissingEquipmentItem(summary, item)).join("")}
+      </div>`);
+    }
+    if (activeItems.length) {
+      parts.push(`<div class="cmr-cost-list">${activeItems.map((item) => this._renderEquipmentItem(summary, item)).join("")}</div>`);
+    }
+    if (ignoredItems.length) {
+      parts.push(`<div class="cmr-equipment-missing">
+        <div class="cmr-row-muted">Echipamente neafișate la alerte</div>
+        ${ignoredItems.map((item) => this._renderIgnoredEquipmentItem(summary, item)).join("")}
+      </div>`);
+    }
+    if (!parts.length) return `<div class="cmr-history-empty">Nu există echipamente salvate pentru acest autovehicul.</div>`;
+    return parts.join("");
+  }
+
+  _renderMissingEquipmentItem(summary, item) {
+    const type = item.equipment_type || "";
+    const label = item.equipment_type_label || this._equipmentTypeLabel(type);
+    return `
+      <div class="cmr-cost-item cmr-cost-item-block cmr-equipment-warning">
+        <div class="cmr-cost-item-main">
+          <div class="cmr-cost-item-title">${this._escape(label)} <span>neconfigurat</span></div>
+          <div class="cmr-row-muted">Element recomandat pentru siguranță. Adaugă-l sau ascunde-l dacă nu vrei să îl urmărești.</div>
+        </div>
+        <div class="cmr-cost-item-side">
+          <div class="cmr-inline-actions">
+            <button class="cmr-mini-action" type="button" data-action="prepare-missing-equipment" data-vehicle="${this._escape(summary.key)}" data-equipment-type="${this._escape(type)}">Adaugă</button>
+            <button class="cmr-mini-action cmr-danger" type="button" data-action="ignore-equipment-type" data-vehicle="${this._escape(summary.key)}" data-vehicle-ref="${this._escape(summary.vehicle.vehicle_id || summary.vehicle.plate || summary.vehicle.label || summary.vehicle.key || "")}" data-equipment-type="${this._escape(type)}" data-equipment-label="${this._escape(label)}">Nu urmăresc</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  _renderIgnoredEquipmentItem(summary, item) {
+    const itemId = item.item_id || "";
+    const label = item.equipment_type_label || "Echipament";
+    return `
+      <div class="cmr-cost-item cmr-cost-item-block">
+        <div class="cmr-cost-item-main">
+          <div class="cmr-cost-item-title">${this._escape(label)} <span>ignorat</span></div>
+          <div class="cmr-row-muted">Nu apare în alerte și nu este inclus în costuri.</div>
+        </div>
+        <div class="cmr-cost-item-side">
+          <div class="cmr-inline-actions">
+            <button class="cmr-mini-action" type="button" data-action="reactivate-equipment-type" data-item-id="${this._escape(itemId)}" data-vehicle="${this._escape(summary.key)}" data-equipment-label="${this._escape(label)}">Reactivează</button>
+          </div>
+        </div>
+      </div>`;
   }
 
   _renderEquipmentItem(summary, item) {
@@ -2480,6 +2572,65 @@ class CarManagerRomaniaCard extends HTMLElement {
     }
   }
 
+  _prepareMissingEquipment(vehicleKey, equipmentType) {
+    if (!vehicleKey || !equipmentType) return;
+    this._equipmentDrafts[vehicleKey] = {
+      ...(this._equipmentDrafts[vehicleKey] || {}),
+      equipment_type: equipmentType,
+      present: true,
+      ignored: false,
+    };
+    this._equipmentFormOpen.add(vehicleKey);
+    this.render();
+  }
+
+  async _ignoreEquipmentType(vehicleKey, vehicleRef, equipmentType, label = "") {
+    if (!this._hass || !vehicleKey || !equipmentType || this._equipmentBusy) return;
+    const confirmed = window.confirm(`Nu mai urmărești acest echipament pentru mașina selectată?${label ? `\n\nEchipament: ${label}` : ""}\n\nÎl vei putea reactiva din lista echipamentelor ignorate.`);
+    if (!confirmed) return;
+    this._equipmentBusy = `${vehicleKey}:${equipmentType}:ignore`;
+    this._equipmentMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "add_equipment_item", {
+        vehicle_id: vehicleRef || vehicleKey,
+        equipment_type: equipmentType,
+        name: "Nu urmăresc",
+        purchase_date: "",
+        expiry_date: "",
+        cost: 0,
+        present: false,
+        ignored: true,
+        storage_location: "",
+        notes: "Echipament ascuns din alerte din card.",
+      });
+      this._equipmentMessage[vehicleKey] = "Echipamentul a fost ascuns din alerte.";
+    } catch (error) {
+      this._equipmentMessage[vehicleKey] = error?.message || "Nu am putut ascunde echipamentul.";
+    } finally {
+      this._equipmentBusy = null;
+      this.render();
+    }
+  }
+
+  async _reactivateEquipmentType(itemId, vehicleKey, label = "") {
+    if (!this._hass || !itemId || this._equipmentBusy) return;
+    const confirmed = window.confirm(`Reactivezi urmărirea acestui echipament?${label ? `\n\nEchipament: ${label}` : ""}`);
+    if (!confirmed) return;
+    this._equipmentBusy = itemId;
+    this._equipmentMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "delete_equipment_item", { item_id: itemId });
+      this._equipmentMessage[vehicleKey] = "Echipamentul a fost reactivat. Dacă nu este introdus, va apărea ca neconfigurat.";
+    } catch (error) {
+      this._equipmentMessage[vehicleKey] = error?.message || "Nu am putut reactiva echipamentul.";
+    } finally {
+      this._equipmentBusy = null;
+      this.render();
+    }
+  }
+
   _captureEquipmentDraft(form) {
     if (!form) return;
     const vehicleKey = form.dataset.vehicle;
@@ -2503,6 +2654,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       expiry_date: (data.get("expiry_date") || "").toString(),
       cost: (data.get("cost") || "0").toString(),
       present: data.get("present") === "on",
+      ignored: false,
       storage_location: (data.get("storage_location") || "").toString(),
       notes: (data.get("notes") || "").toString(),
     };
@@ -2531,6 +2683,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       expiry_date: (data.get("expiry_date") || "").toString(),
       cost: Number(data.get("cost") || 0),
       present: data.get("present") === "on",
+      ignored: false,
       storage_location: (data.get("storage_location") || "").toString().trim(),
       notes: (data.get("notes") || "").toString().trim(),
     };

@@ -951,6 +951,12 @@ add_equipment_item:
       default: true
       selector:
         boolean:
+    ignored:
+      name: Nu urmăresc acest echipament
+      required: false
+      default: false
+      selector:
+        boolean:
     storage_location:
       name: Loc depozitare
       required: false
@@ -1041,6 +1047,12 @@ update_equipment_item:
       name: Există în mașină
       required: false
       default: true
+      selector:
+        boolean:
+    ignored:
+      name: Nu urmăresc acest echipament
+      required: false
+      default: false
       selector:
         boolean:
     storage_location:

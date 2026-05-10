@@ -25,6 +25,7 @@ from .const import (
     MAINTENANCE_TYPES,
 )
 from .costs import expense_total, upcoming_expense_items
+from .equipment import equipment_issues_for_vehicle
 from .legal import legal_days_remaining, legal_status, is_legal_ignored
 from .maintenance import maintenance_remaining_values, maintenance_status
 from .rovinieta.models import VehicleData
@@ -275,6 +276,10 @@ def _build_vehicle_issue_summary(
             critical_items.append(item)
         else:
             warning_items.append(item)
+
+    equipment_critical, equipment_warning = equipment_issues_for_vehicle(entry, vehicle)
+    critical_items.extend(equipment_critical)
+    warning_items.extend(equipment_warning)
 
     rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle)
     if rovinieta_vehicle is not None:
