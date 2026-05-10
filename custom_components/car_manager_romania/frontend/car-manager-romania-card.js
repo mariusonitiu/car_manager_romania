@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.4"; }
+  static get version() { return "1.0.7"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -31,6 +31,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._backupBusy = this._backupBusy || null;
     this._backupFilename = this._backupFilename || "car_manager_romania_backup.json";
     this._backupMessage = this._backupMessage || "";
+    this._activeTab = this._activeTab || this.config.default_tab || "vehicles";
   }
 
   set hass(hass) {
@@ -78,10 +79,12 @@ class CarManagerRomaniaCard extends HTMLElement {
               <button class="cmr-mode" data-action="toggle-backup">Backup</button>
             </div>
           </div>
+          ${this._renderTabs()}
           ${this._addVehicleOpen ? this._renderAddVehicleForm() : ""}
           ${this._backupOpen ? this._renderBackupPanel() : ""}
-          ${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}
-          ${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}
+          ${this._activeTab === "costs"
+            ? this._renderCostsTab(visibleVehicles)
+            : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
         </div>
       </ha-card>
     `;
@@ -254,6 +257,167 @@ class CarManagerRomaniaCard extends HTMLElement {
         ${this._backupMessage ? `<div class="cmr-message">${this._escape(this._backupMessage)}</div>` : ""}
       </section>
     `;
+  }
+
+
+  _renderTabs() {
+    const active = this._activeTab || "vehicles";
+    return `
+      <div class="cmr-tabs" role="tablist">
+        <button class="cmr-tab ${active === "vehicles" ? "is-active" : ""}" data-action="set-tab" data-tab="vehicles" type="button">Autovehicule</button>
+        <button class="cmr-tab ${active === "costs" ? "is-active" : ""}" data-action="set-tab" data-tab="costs" type="button">Costuri</button>
+      </div>
+    `;
+  }
+
+  _renderCostsTab(vehicles) {
+    if (!vehicles.length) return this._renderEmpty();
+
+    const summaries = vehicles.map((vehicle) => this._costSummaryForVehicle(vehicle));
+    const totalAnnual = summaries.reduce((sum, item) => sum + item.annual, 0);
+    const total30 = summaries.reduce((sum, item) => sum + item.upcoming30, 0);
+    const total90 = summaries.reduce((sum, item) => sum + item.upcoming90, 0);
+    const allUpcoming90 = summaries.flatMap((summary) => summary.items90.map((item) => ({ ...item, vehicle_label: summary.label })));
+    const allUpcoming30 = allUpcoming90.filter((item) => this._toNumber(item.days_remaining) <= 30);
+    const byType = this._groupCostItemsByType(allUpcoming90);
+
+    return `
+      <section class="cmr-costs-panel">
+        <div class="cmr-section-title">Costuri</div>
+        <div class="cmr-cost-summary-grid">
+          ${this._renderCostSummaryCard("Costuri anul curent", totalAnnual, "Din istoricul intervențiilor salvate")}
+          ${this._renderCostSummaryCard("Următoarele 30 zile", total30, `${allUpcoming30.length} cheltuieli estimate`)}
+          ${this._renderCostSummaryCard("Următoarele 90 zile", total90, `${allUpcoming90.length} cheltuieli estimate`)}
+        </div>
+        <div class="cmr-cost-section">
+          <div class="cmr-section-title">Defalcare pe autovehicul</div>
+          <div class="cmr-cost-table">
+            <div class="cmr-cost-table-row cmr-cost-table-head">
+              <span>Autovehicul</span><span>An curent</span><span>30 zile</span><span>90 zile</span>
+            </div>
+            ${summaries.map((summary) => `
+              <div class="cmr-cost-table-row">
+                <span><strong>${this._escape(summary.label)}</strong><small>${this._escape(summary.plate || "")}</small></span>
+                <span>${this._formatMoney(summary.annual)}</span>
+                <span>${this._formatMoney(summary.upcoming30)}</span>
+                <span>${this._formatMoney(summary.upcoming90)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+        <div class="cmr-cost-section">
+          <div class="cmr-section-title">Defalcare pe tip, următoarele 90 zile</div>
+          ${byType.length ? `
+            <div class="cmr-cost-chips">
+              ${byType.map((item) => `<div class="cmr-cost-chip"><span>${this._escape(item.label)}</span><strong>${this._formatMoney(item.total)}</strong></div>`).join("")}
+            </div>
+          ` : `<div class="cmr-history-empty">Nu există cheltuieli estimate în următoarele 90 de zile.</div>`}
+        </div>
+        <div class="cmr-cost-section">
+          <div class="cmr-section-head">
+            <div class="cmr-section-title">Cheltuieli estimate care urmează</div>
+          </div>
+          ${this._renderUpcomingCostItems(allUpcoming90)}
+        </div>
+      </section>
+    `;
+  }
+
+  _renderCostSummaryCard(title, amount, subtitle) {
+    return `
+      <div class="cmr-cost-card">
+        <div class="cmr-cost-title">${this._escape(title)}</div>
+        <div class="cmr-cost-value">${this._formatMoney(amount)}</div>
+        <div class="cmr-row-muted">${this._escape(subtitle || "")}</div>
+      </div>
+    `;
+  }
+
+  _costSummaryForVehicle(vehicle) {
+    const annualSensor = this._findSensorByName(vehicle, ["costuri", "anul", "curent"]);
+    const upcoming30Sensor = this._findSensorByName(vehicle, ["cheltuieli", "urmatoarele", "30", "zile"]);
+    const upcoming90Sensor = this._findSensorByName(vehicle, ["cheltuieli", "urmatoarele", "90", "zile"]);
+    const items30 = this._costItemsFromSensor(upcoming30Sensor);
+    const items90 = this._costItemsFromSensor(upcoming90Sensor);
+
+    return {
+      vehicle,
+      label: vehicle.label || "Autovehicul",
+      plate: vehicle.plate || "",
+      annual: this._toNumber(this._entityValue(annualSensor)),
+      upcoming30: this._toNumber(this._entityValue(upcoming30Sensor)),
+      upcoming90: this._toNumber(this._entityValue(upcoming90Sensor)),
+      items30,
+      items90,
+    };
+  }
+
+  _costItemsFromSensor(sensor) {
+    const attrs = sensor?.stateObj?.attributes || {};
+    const items = Array.isArray(attrs.items_with_cost) ? attrs.items_with_cost : Array.isArray(attrs.items) ? attrs.items.filter((item) => this._toNumber(item?.cost) > 0) : [];
+    return items
+      .filter((item) => item && typeof item === "object" && this._toNumber(item.cost) > 0)
+      .map((item) => ({
+        category: item.category || "other",
+        key: item.key || "",
+        label: item.label || "Cheltuială",
+        status: item.status || "",
+        days_remaining: this._toNumber(item.days_remaining),
+        km_remaining: item.km_remaining,
+        due_date: item.due_date || "",
+        cost: this._toNumber(item.cost),
+      }))
+      .sort((a, b) => (a.days_remaining - b.days_remaining) || a.label.localeCompare(b.label, "ro"));
+  }
+
+  _groupCostItemsByType(items) {
+    const groups = new Map();
+    for (const item of items) {
+      const key = `${item.category || "other"}:${item.key || item.label || "other"}`;
+      const label = item.label || this._costCategoryLabel(item.category);
+      const existing = groups.get(key) || { label, total: 0 };
+      existing.total += this._toNumber(item.cost);
+      groups.set(key, existing);
+    }
+    return [...groups.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "ro"));
+  }
+
+  _renderUpcomingCostItems(items) {
+    if (!items.length) return `<div class="cmr-history-empty">Nu există cheltuieli estimate configurate în următoarele 90 de zile.</div>`;
+
+    return `
+      <div class="cmr-cost-list">
+        ${items.map((item) => `
+          <div class="cmr-cost-item">
+            <div class="cmr-cost-item-main">
+              <div class="cmr-cost-item-title">${this._escape(item.label || "Cheltuială")} <span>${this._escape(item.vehicle_label || "")}</span></div>
+              <div class="cmr-row-muted">${this._escape(this._costItemMeta(item))}</div>
+            </div>
+            <div class="cmr-cost-item-value">${this._formatMoney(item.cost)}</div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  _costItemMeta(item) {
+    const parts = [];
+    const days = this._toNumber(item.days_remaining);
+    if (Number.isFinite(days)) parts.push(days <= 0 ? "scadent" : `în ${days} zile`);
+    if (item.due_date) parts.push(item.due_date);
+    if (item.km_remaining !== null && item.km_remaining !== undefined && item.km_remaining !== "") parts.push(`${item.km_remaining} km rămași`);
+    if (item.status) parts.push(item.status);
+    return parts.join(" · ");
+  }
+
+  _toNumber(value) {
+    const number = Number(value ?? 0);
+    return Number.isFinite(number) ? number : 0;
+  }
+
+  _formatMoney(value) {
+    const amount = this._toNumber(value);
+    return `${amount.toLocaleString("ro-RO", { minimumFractionDigits: amount % 1 ? 2 : 0, maximumFractionDigits: 2 })} RON`;
   }
 
   _renderVehicle(vehicle) {
@@ -983,6 +1147,14 @@ class CarManagerRomaniaCard extends HTMLElement {
       this._backupOpen = !this._backupOpen;
       this._backupMessage = "";
       this.render();
+    });
+
+    this.querySelectorAll('[data-action="set-tab"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const tab = button.dataset.tab || "vehicles";
+        this._activeTab = tab === "costs" ? "costs" : "vehicles";
+        this.render();
+      });
     });
 
     this.querySelector('[data-action="cancel-add-vehicle"]')?.addEventListener("click", () => {
@@ -1843,6 +2015,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-card { padding: 16px; container-type: inline-size; }
       .cmr-header, .cmr-vehicle-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
       .cmr-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+      .cmr-tabs { display: flex; gap: 8px; margin-top: 14px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--card-background-color) 88%, var(--primary-color) 12%); border: 1px solid var(--divider-color); }
+      .cmr-tab { flex: 1 1 0; border: 0; border-radius: 999px; padding: 8px 10px; color: var(--secondary-text-color); background: transparent; cursor: pointer; font-weight: 900; }
+      .cmr-tab.is-active { color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 22%, transparent); }
       .cmr-title { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
       .cmr-subtitle, .cmr-plate, .cmr-row-muted, .cmr-tile-sub { color: var(--secondary-text-color); font-size: 12px; }
       .cmr-mode, .cmr-action { border: 0; border-radius: 999px; padding: 8px 12px; color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); cursor: pointer; font-weight: 700; }
@@ -1922,6 +2097,28 @@ class CarManagerRomaniaCard extends HTMLElement {
       .is-neutral { --cmr-accent: var(--secondary-text-color); }
       .cmr-tile.is-good, .cmr-tile.is-warn, .cmr-tile.is-bad { border-left: 5px solid var(--cmr-accent); }
       .cmr-row.is-good .cmr-row-value, .cmr-row.is-warn .cmr-row-value, .cmr-row.is-bad .cmr-row-value { color: var(--cmr-accent); }
+      .cmr-costs-panel { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
+      .cmr-cost-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+      .cmr-cost-card { padding: 12px; border-radius: 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
+      .cmr-cost-title { color: var(--secondary-text-color); font-size: 12px; font-weight: 900; }
+      .cmr-cost-value { margin-top: 6px; font-size: 20px; font-weight: 950; letter-spacing: -0.02em; }
+      .cmr-cost-section { margin-top: 14px; padding: 12px; border-radius: 16px; background: color-mix(in srgb, var(--card-background-color) 92%, var(--primary-color) 8%); }
+      .cmr-cost-table { display: flex; flex-direction: column; gap: 0; }
+      .cmr-cost-table-row { display: grid; grid-template-columns: minmax(0, 1.35fr) repeat(3, minmax(72px, .55fr)); gap: 8px; align-items: center; padding: 9px 0; border-top: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent); }
+      .cmr-cost-table-row:first-child { border-top: 0; }
+      .cmr-cost-table-row span { min-width: 0; overflow-wrap: anywhere; }
+      .cmr-cost-table-row small { display: block; color: var(--secondary-text-color); font-size: 11px; margin-top: 2px; }
+      .cmr-cost-table-head { color: var(--secondary-text-color); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .03em; }
+      .cmr-cost-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+      .cmr-cost-chip { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 999px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
+      .cmr-cost-chip span { color: var(--secondary-text-color); font-size: 12px; font-weight: 800; }
+      .cmr-cost-chip strong { font-size: 12px; }
+      .cmr-cost-list { display: flex; flex-direction: column; gap: 8px; }
+      .cmr-cost-item { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px; border-radius: 14px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
+      .cmr-cost-item-main { min-width: 0; }
+      .cmr-cost-item-title { font-weight: 900; overflow-wrap: anywhere; }
+      .cmr-cost-item-title span { margin-left: 5px; color: var(--secondary-text-color); font-size: 12px; font-weight: 700; }
+      .cmr-cost-item-value { flex: 0 0 auto; font-weight: 950; }
       .cmr-field { display: grid; grid-template-columns: minmax(105px, 1fr) minmax(120px, 260px); align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent); font-weight: 700; }
       .cmr-field span { line-height: 1.25; }
       .cmr-field:first-of-type { border-top: 0; }
@@ -1931,7 +2128,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       @container (max-width: 420px) {
         .cmr-header, .cmr-vehicle-head { align-items: flex-start; }
         .cmr-header-actions { width: 100%; justify-content: flex-start; }
-        .cmr-add-grid { grid-template-columns: 1fr; }
+        .cmr-add-grid, .cmr-cost-summary-grid { grid-template-columns: 1fr; }
         .cmr-field { grid-template-columns: 1fr; }
         .cmr-service-grid { grid-template-columns: 1fr; }
         .cmr-history-row { flex-direction: column; }
@@ -1942,7 +2139,7 @@ class CarManagerRomaniaCard extends HTMLElement {
         .cmr-tile-main { font-size: 16px; }
         .cmr-tile-sub { font-size: 11px; }
         .cmr-tile-top { font-size: 9.5px; }
-        .cmr-row { grid-template-columns: 1fr; }
+        .cmr-row, .cmr-cost-table-row { grid-template-columns: 1fr; }
         .cmr-spec-row { grid-template-columns: 1fr; gap: 4px; }
       }
     `;
