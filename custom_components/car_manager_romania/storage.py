@@ -220,6 +220,17 @@ class CarManagerFuelReceiptStore:
         self._receipts.append(deepcopy(receipt))
         await self._store.async_save({"receipts": self._receipts})
 
+    async def async_update_receipt(self, receipt_id: str, updated_receipt: dict[str, Any]) -> bool:
+        """Replace one fuel receipt by ID and persist the change."""
+
+        await self.async_load()
+        for index, receipt in enumerate(self._receipts):
+            if str(receipt.get("receipt_id", "")) == receipt_id:
+                self._receipts[index] = deepcopy(updated_receipt)
+                await self._store.async_save({"receipts": self._receipts})
+                return True
+        return False
+
     async def async_delete_receipt(self, receipt_id: str) -> bool:
         """Delete a fuel receipt by ID."""
 

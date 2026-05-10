@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.8"
+VERSION = "1.0.12"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -30,6 +30,7 @@ SERVICE_IMPORT_DATA = "import_data"
 SERVICE_SET_LEGAL_OPTION = "set_legal_option"
 SERVICE_CLEANUP_ORPHAN_ENTITIES = "cleanup_orphan_entities"
 SERVICE_ADD_FUEL_RECEIPT = "add_fuel_receipt"
+SERVICE_UPDATE_FUEL_RECEIPT = "update_fuel_receipt"
 SERVICE_DELETE_FUEL_RECEIPT = "delete_fuel_receipt"
 
 CONF_VEHICLE_ID = "vehicle_id"
