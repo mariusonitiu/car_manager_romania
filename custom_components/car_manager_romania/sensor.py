@@ -55,6 +55,8 @@ from .maintenance import (
 )
 from .costs import annual_history_total, expense_total, upcoming_expense_items
 from .fuel import enriched_fuel_receipts_for_vehicle, fuel_consumption_intervals, fuel_current_month_total, fuel_current_year_total, latest_average_consumption
+from .tire import tire_sets_for_vehicle, current_year_tire_cost_total
+from .equipment import equipment_items_for_vehicle, current_year_equipment_cost_total
 from .rovinieta.sensor import async_setup_rovinieta_sensors
 
 
@@ -345,6 +347,10 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         attributes["service_history"] = vehicle_records[:10]
         attributes["fuel_receipts"] = enriched_fuel_receipts_for_vehicle(self._entry, self._vehicle)[:20]
         attributes["fuel_consumption_intervals"] = fuel_consumption_intervals(self._entry, self._vehicle)[:10]
+        attributes["tire_sets"] = tire_sets_for_vehicle(self._entry, self._vehicle)[:20]
+        attributes["tire_costs_current_year"] = current_year_tire_cost_total(self._entry, self._vehicle)
+        attributes["equipment_items"] = equipment_items_for_vehicle(self._entry, self._vehicle)[:30]
+        attributes["equipment_costs_current_year"] = current_year_equipment_cost_total(self._entry, self._vehicle)
         attributes.update(_vehicle_overall_summary(self._vehicle))
 
         return attributes

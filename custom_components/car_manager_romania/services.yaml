@@ -600,3 +600,472 @@ delete_fuel_receipt:
       required: true
       selector:
         text:
+
+add_tire_set:
+  name: Adaugă set anvelope
+  description: Salvează un set de anvelope pentru un autovehicul.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      description: ID-ul intern stabil, VIN-ul, numărul de înmatriculare sau numele autovehiculului.
+      required: true
+      selector:
+        text:
+    tire_type:
+      name: Tip anvelope
+      required: true
+      selector:
+        select:
+          options:
+            - summer
+            - winter
+            - all_season
+    wheel_mount_type:
+      name: Montaj
+      required: false
+      default: tires_only
+      selector:
+        select:
+          options:
+            - label: Doar cauciucuri
+              value: tires_only
+            - label: Pe jante
+              value: on_rims
+    brand_model:
+      name: Marcă / model
+      required: false
+      selector:
+        text:
+    size:
+      name: Dimensiune
+      required: false
+      selector:
+        text:
+    dot:
+      name: DOT
+      required: false
+      selector:
+        text:
+    quantity:
+      name: Număr bucăți
+      required: false
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 12
+          step: 1
+          mode: box
+    purchase_date:
+      name: Data cumpărării
+      required: false
+      selector:
+        date:
+    last_mount_date:
+      name: Data montării
+      required: false
+      selector:
+        date:
+    last_mount_km:
+      name: Km la montare
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+    total_km:
+      name: Km parcurși cu setul
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    installed:
+      name: Set montat acum
+      required: false
+      default: false
+      selector:
+        boolean:
+    storage_location:
+      name: Loc depozitare
+      required: false
+      selector:
+        text:
+    pressure_front:
+      name: Presiune față
+      required: false
+      selector:
+        text:
+    pressure_rear:
+      name: Presiune spate
+      required: false
+      selector:
+        text:
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+update_tire_set:
+  name: Actualizează set anvelope
+  description: Modifică un set de anvelope salvat anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    set_id:
+      name: ID set
+      required: true
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      required: true
+      selector:
+        text:
+    tire_type:
+      name: Tip anvelope
+      required: true
+      selector:
+        select:
+          options:
+            - summer
+            - winter
+            - all_season
+    wheel_mount_type:
+      name: Montaj
+      required: false
+      default: tires_only
+      selector:
+        select:
+          options:
+            - label: Doar cauciucuri
+              value: tires_only
+            - label: Pe jante
+              value: on_rims
+    brand_model:
+      name: Marcă / model
+      required: false
+      selector:
+        text:
+    size:
+      name: Dimensiune
+      required: false
+      selector:
+        text:
+    dot:
+      name: DOT
+      required: false
+      selector:
+        text:
+    quantity:
+      name: Număr bucăți
+      required: false
+      default: 4
+      selector:
+        number:
+          min: 1
+          max: 12
+          step: 1
+          mode: box
+    purchase_date:
+      name: Data cumpărării
+      required: false
+      selector:
+        date:
+    last_mount_date:
+      name: Data montării
+      required: false
+      selector:
+        date:
+    last_mount_km:
+      name: Km la montare
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+    total_km:
+      name: Km parcurși cu setul
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1000000
+          step: 1
+          mode: box
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    installed:
+      name: Set montat acum
+      required: false
+      default: false
+      selector:
+        boolean:
+    storage_location:
+      name: Loc depozitare
+      required: false
+      selector:
+        text:
+    pressure_front:
+      name: Presiune față
+      required: false
+      selector:
+        text:
+    pressure_rear:
+      name: Presiune spate
+      required: false
+      selector:
+        text:
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+delete_tire_set:
+  name: Șterge set anvelope
+  description: Șterge un set de anvelope salvat anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    set_id:
+      name: ID set
+      required: true
+      selector:
+        text:
+
+add_equipment_item:
+  name: Adaugă echipament auto
+  description: Adaugă un echipament de siguranță sau dotare pentru un autovehicul.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      required: true
+      selector:
+        text:
+    equipment_type:
+      name: Tip echipament
+      required: true
+      selector:
+        select:
+          options:
+            - label: Trusă medicală
+              value: first_aid_kit
+            - label: Stingător
+              value: fire_extinguisher
+            - label: Triunghiuri reflectorizante
+              value: warning_triangles
+            - label: Vestă reflectorizantă
+              value: reflective_vest
+            - label: Roată de rezervă
+              value: spare_wheel
+            - label: Kit pană
+              value: puncture_kit
+            - label: Compresor
+              value: compressor
+            - label: Cric
+              value: jack
+            - label: Cheie roți
+              value: wheel_wrench
+            - label: Cabluri pornire
+              value: jump_cables
+            - label: Lanțuri antiderapante
+              value: snow_chains
+            - label: Alt echipament
+              value: other
+    name:
+      name: Denumire / model
+      required: false
+      selector:
+        text:
+    purchase_date:
+      name: Data cumpărării
+      required: false
+      selector:
+        date:
+    expiry_date:
+      name: Data expirării
+      required: false
+      selector:
+        date:
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    present:
+      name: Există în mașină
+      required: false
+      default: true
+      selector:
+        boolean:
+    storage_location:
+      name: Loc depozitare
+      required: false
+      selector:
+        text:
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+update_equipment_item:
+  name: Actualizează echipament auto
+  description: Actualizează un echipament de siguranță sau dotare salvat anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    item_id:
+      name: ID echipament
+      required: true
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      required: true
+      selector:
+        text:
+    equipment_type:
+      name: Tip echipament
+      required: true
+      selector:
+        select:
+          options:
+            - label: Trusă medicală
+              value: first_aid_kit
+            - label: Stingător
+              value: fire_extinguisher
+            - label: Triunghiuri reflectorizante
+              value: warning_triangles
+            - label: Vestă reflectorizantă
+              value: reflective_vest
+            - label: Roată de rezervă
+              value: spare_wheel
+            - label: Kit pană
+              value: puncture_kit
+            - label: Compresor
+              value: compressor
+            - label: Cric
+              value: jack
+            - label: Cheie roți
+              value: wheel_wrench
+            - label: Cabluri pornire
+              value: jump_cables
+            - label: Lanțuri antiderapante
+              value: snow_chains
+            - label: Alt echipament
+              value: other
+    name:
+      name: Denumire / model
+      required: false
+      selector:
+        text:
+    purchase_date:
+      name: Data cumpărării
+      required: false
+      selector:
+        date:
+    expiry_date:
+      name: Data expirării
+      required: false
+      selector:
+        date:
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    present:
+      name: Există în mașină
+      required: false
+      default: true
+      selector:
+        boolean:
+    storage_location:
+      name: Loc depozitare
+      required: false
+      selector:
+        text:
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+delete_equipment_item:
+  name: Șterge echipament auto
+  description: Șterge un echipament de siguranță sau dotare salvat anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    item_id:
+      name: ID echipament
+      required: true
+      selector:
+        text:

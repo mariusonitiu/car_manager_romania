@@ -55,6 +55,15 @@ from .const import (
     SERVICE_ADD_FUEL_RECEIPT,
     SERVICE_UPDATE_FUEL_RECEIPT,
     SERVICE_DELETE_FUEL_RECEIPT,
+    SERVICE_ADD_TIRE_SET,
+    SERVICE_UPDATE_TIRE_SET,
+    SERVICE_DELETE_TIRE_SET,
+    SERVICE_ADD_EQUIPMENT_ITEM,
+    SERVICE_UPDATE_EQUIPMENT_ITEM,
+    SERVICE_DELETE_EQUIPMENT_ITEM,
+    TIRE_TYPES,
+    TIRE_MOUNT_TYPES,
+    EQUIPMENT_TYPES,
     LEGAL_OPTION_IGNORED,
     LEGAL_TYPE_CASCO,
     STORAGE_KEY_NOTIFICATIONS,
@@ -73,6 +82,8 @@ from .legal import set_legal_ignored
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
 from .storage import CarManagerFuelReceiptStore, CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
+from .tire import CarManagerTireSetStore, normalize_tire_set
+from .equipment import CarManagerEquipmentItemStore, normalize_equipment_item
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,6 +101,8 @@ class CarManagerRuntimeData:
     vehicle_store: CarManagerVehicleStore
     service_history_store: CarManagerServiceHistoryStore
     fuel_receipt_store: CarManagerFuelReceiptStore
+    tire_set_store: CarManagerTireSetStore
+    equipment_item_store: CarManagerEquipmentItemStore
     rovinieta_coordinator: CarManagerRovinietaCoordinator | None = None
 
 
@@ -457,6 +470,98 @@ DELETE_FUEL_RECEIPT_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): str,
         vol.Required("receipt_id"): str,
+    }
+)
+
+ADD_TIRE_SET_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("tire_type"): vol.In(list(TIRE_TYPES.keys())),
+        vol.Optional("wheel_mount_type", default="tires_only"): vol.In(list(TIRE_MOUNT_TYPES.keys())),
+        vol.Optional("brand_model", default=""): str,
+        vol.Optional("size", default=""): str,
+        vol.Optional("dot", default=""): str,
+        vol.Optional("quantity", default=4): vol.Coerce(int),
+        vol.Optional("purchase_date", default=""): str,
+        vol.Optional("last_mount_date", default=""): str,
+        vol.Optional("last_mount_km", default=0): vol.Coerce(int),
+        vol.Optional("total_km", default=0): vol.Coerce(int),
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("installed", default=False): bool,
+        vol.Optional("storage_location", default=""): str,
+        vol.Optional("pressure_front", default=""): str,
+        vol.Optional("pressure_rear", default=""): str,
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+UPDATE_TIRE_SET_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("set_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("tire_type"): vol.In(list(TIRE_TYPES.keys())),
+        vol.Optional("wheel_mount_type", default="tires_only"): vol.In(list(TIRE_MOUNT_TYPES.keys())),
+        vol.Optional("brand_model", default=""): str,
+        vol.Optional("size", default=""): str,
+        vol.Optional("dot", default=""): str,
+        vol.Optional("quantity", default=4): vol.Coerce(int),
+        vol.Optional("purchase_date", default=""): str,
+        vol.Optional("last_mount_date", default=""): str,
+        vol.Optional("last_mount_km", default=0): vol.Coerce(int),
+        vol.Optional("total_km", default=0): vol.Coerce(int),
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("installed", default=False): bool,
+        vol.Optional("storage_location", default=""): str,
+        vol.Optional("pressure_front", default=""): str,
+        vol.Optional("pressure_rear", default=""): str,
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+DELETE_TIRE_SET_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("set_id"): str,
+    }
+)
+
+ADD_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("equipment_type"): vol.In(list(EQUIPMENT_TYPES.keys())),
+        vol.Optional("name", default=""): str,
+        vol.Optional("purchase_date", default=""): str,
+        vol.Optional("expiry_date", default=""): str,
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("present", default=True): bool,
+        vol.Optional("storage_location", default=""): str,
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+UPDATE_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("item_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("equipment_type"): vol.In(list(EQUIPMENT_TYPES.keys())),
+        vol.Optional("name", default=""): str,
+        vol.Optional("purchase_date", default=""): str,
+        vol.Optional("expiry_date", default=""): str,
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("present", default=True): bool,
+        vol.Optional("storage_location", default=""): str,
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+DELETE_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("item_id"): str,
     }
 )
 
@@ -899,6 +1004,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_ADD_FUEL_RECEIPT)
         and hass.services.has_service(DOMAIN, SERVICE_UPDATE_FUEL_RECEIPT)
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_FUEL_RECEIPT)
+        and hass.services.has_service(DOMAIN, SERVICE_ADD_TIRE_SET)
+        and hass.services.has_service(DOMAIN, SERVICE_UPDATE_TIRE_SET)
+        and hass.services.has_service(DOMAIN, SERVICE_DELETE_TIRE_SET)
     ):
         return
 
@@ -1089,6 +1197,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
         fuel_store = entry.runtime_data.fuel_receipt_store
+        tire_store = entry.runtime_data.tire_set_store
+        equipment_store = entry.runtime_data.equipment_item_store
 
         vehicle_id = str(call.data[CONF_VEHICLE_ID]).strip()
         if not vehicle_id:
@@ -1524,6 +1634,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
         fuel_store = entry.runtime_data.fuel_receipt_store
+        tire_store = entry.runtime_data.tire_set_store
+        equipment_store = entry.runtime_data.equipment_item_store
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
         if not filename:
@@ -1542,6 +1654,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         normalized_vehicles, _ = normalize_vehicles(list(vehicles))
         service_history = await history_store.async_get_records()
         fuel_receipts = await fuel_store.async_get_receipts()
+        tire_sets = await entry.runtime_data.tire_set_store.async_get_sets()
+        equipment_items = await entry.runtime_data.equipment_item_store.async_get_items()
 
         notification_data: dict[str, Any] = {}
         try:
@@ -1569,6 +1683,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "vehicles": normalized_vehicles,
             "service_history": service_history,
             "fuel_receipts": fuel_receipts,
+            "tire_sets": tire_sets,
+            "equipment_items": equipment_items,
             "notification_state": notification_data,
         }
 
@@ -1586,7 +1702,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             hass,
             "Exportul Car Manager România a fost salvat local.\n\n"
             f"Fișier: `{backup_path}`\n\n"
-            "Fișierul conține datele autovehiculelor, istoricul intervențiilor, bonurile de combustibil și starea notificărilor. "
+            "Fișierul conține datele autovehiculelor, istoricul intervențiilor, bonurile de combustibil, seturile de anvelope, echipamentele auto și starea notificărilor. "
             "Păstrează-l în siguranță, deoarece poate include VIN, numere de înmatriculare și observații de service.",
             title="Car Manager România - export date finalizat",
             notification_id="car_manager_romania_export_data",
@@ -1655,6 +1771,16 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not isinstance(fuel_receipts, list):
             warnings.append("Câmpul fuel_receipts nu este listă și va fi ignorat la import.")
             fuel_receipts = []
+
+        tire_sets = backup_data.get("tire_sets", [])
+        if not isinstance(tire_sets, list):
+            warnings.append("Câmpul tire_sets nu este listă și va fi ignorat la import.")
+            tire_sets = []
+
+        equipment_items = backup_data.get("equipment_items", [])
+        if not isinstance(equipment_items, list):
+            warnings.append("Câmpul equipment_items nu este listă și va fi ignorat la import.")
+            equipment_items = []
 
         notification_state = backup_data.get("notification_state")
         if notification_state is not None and not isinstance(notification_state, dict):
@@ -1754,6 +1880,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 f"- Autovehicule: {len(vehicles)} total, {active_count} active, {removed_count} dezactivate",
                 f"- Intervenții în istoric: {len(service_history)}",
                 f"- Intervenții restaurabile: {restorable_count}",
+                f"- Bonuri combustibil: {len(fuel_receipts)}",
+                f"- Seturi anvelope: {len(tire_sets)}",
+                f"- Echipamente auto: {len(equipment_items)}",
             ]
             if warnings:
                 summary_lines.extend(["", "Avertizări:"])
@@ -1783,6 +1912,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
         fuel_store = entry.runtime_data.fuel_receipt_store
+        tire_store = entry.runtime_data.tire_set_store
+        equipment_store = entry.runtime_data.equipment_item_store
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
         if not filename:
@@ -1826,12 +1957,18 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         backup_vehicles_raw = backup_data.get("vehicles")
         backup_history_raw = backup_data.get("service_history")
         backup_fuel_raw = backup_data.get("fuel_receipts", [])
+        backup_tire_raw = backup_data.get("tire_sets", [])
+        backup_equipment_raw = backup_data.get("equipment_items", [])
         if not isinstance(backup_vehicles_raw, list):
             raise HomeAssistantError("Câmpul vehicles lipsește sau nu este listă.")
         if not isinstance(backup_history_raw, list):
             raise HomeAssistantError("Câmpul service_history lipsește sau nu este listă.")
         if not isinstance(backup_fuel_raw, list):
             backup_fuel_raw = []
+        if not isinstance(backup_tire_raw, list):
+            backup_tire_raw = []
+        if not isinstance(backup_equipment_raw, list):
+            backup_equipment_raw = []
 
         backup_vehicles, _ = normalize_vehicles([
             deepcopy(vehicle)
@@ -1848,6 +1985,16 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             for receipt in backup_fuel_raw
             if isinstance(receipt, dict)
         ]
+        backup_tires = [
+            deepcopy(tire_set)
+            for tire_set in backup_tire_raw
+            if isinstance(tire_set, dict)
+        ]
+        backup_equipment = [
+            deepcopy(item)
+            for item in backup_equipment_raw
+            if isinstance(item, dict)
+        ]
 
         current_stored_vehicles = await vehicle_store.async_get_vehicles()
         option_vehicles = entry.options.get(
@@ -1858,6 +2005,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         current_vehicles, _ = normalize_vehicles(current_vehicles)
         current_history = await history_store.async_get_records()
         current_fuel = await fuel_store.async_get_receipts()
+        current_tires = await tire_store.async_get_sets()
+        current_equipment = await equipment_store.async_get_items()
 
         merged_vehicles = [deepcopy(vehicle) for vehicle in current_vehicles if isinstance(vehicle, dict)]
         vehicle_index_by_id = {
@@ -1940,6 +2089,50 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 fuel_index_by_id[receipt_id] = len(merged_fuel) - 1
                 fuel_added += 1
 
+        merged_tires = [deepcopy(tire_set) for tire_set in current_tires if isinstance(tire_set, dict)]
+        tire_index_by_id = {
+            str(tire_set.get("set_id", "")).strip(): index
+            for index, tire_set in enumerate(merged_tires)
+            if isinstance(tire_set, dict) and str(tire_set.get("set_id", "")).strip()
+        }
+        tire_added = 0
+        tire_updated = 0
+        tire_skipped = 0
+        for tire_set in backup_tires:
+            set_id = str(tire_set.get("set_id", "")).strip()
+            if not set_id:
+                tire_skipped += 1
+                continue
+            if set_id in tire_index_by_id:
+                merged_tires[tire_index_by_id[set_id]].update(deepcopy(tire_set))
+                tire_updated += 1
+            else:
+                merged_tires.append(deepcopy(tire_set))
+                tire_index_by_id[set_id] = len(merged_tires) - 1
+                tire_added += 1
+
+        merged_equipment = [deepcopy(item) for item in current_equipment if isinstance(item, dict)]
+        equipment_index_by_id = {
+            str(item.get("item_id", "")).strip(): index
+            for index, item in enumerate(merged_equipment)
+            if isinstance(item, dict) and str(item.get("item_id", "")).strip()
+        }
+        equipment_added = 0
+        equipment_updated = 0
+        equipment_skipped = 0
+        for item in backup_equipment:
+            item_id = str(item.get("item_id", "")).strip()
+            if not item_id:
+                equipment_skipped += 1
+                continue
+            if item_id in equipment_index_by_id:
+                merged_equipment[equipment_index_by_id[item_id]].update(deepcopy(item))
+                equipment_updated += 1
+            else:
+                merged_equipment.append(deepcopy(item))
+                equipment_index_by_id[item_id] = len(merged_equipment) - 1
+                equipment_added += 1
+
         notification_merged = False
         notification_state = backup_data.get("notification_state")
         if isinstance(notification_state, dict) and isinstance(notification_state.get("notified"), dict):
@@ -1949,6 +2142,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await vehicle_store.async_save_vehicles(merged_vehicles)
             await history_store.async_save_records(merged_history)
             await fuel_store.async_save_receipts(merged_fuel)
+            await tire_store.async_save_sets(merged_tires)
+            await equipment_store.async_save_items(merged_equipment)
 
             if notification_merged and isinstance(notification_state, dict):
                 try:
@@ -1996,6 +2191,15 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             f"- Intervenții adăugate: {history_added}",
             f"- Intervenții actualizate: {history_updated}",
             f"- Intervenții ignorate: {history_skipped}",
+            f"- Bonuri combustibil adăugate: {fuel_added}",
+            f"- Bonuri combustibil actualizate: {fuel_updated}",
+            f"- Bonuri combustibil ignorate: {fuel_skipped}",
+            f"- Seturi anvelope adăugate: {tire_added}",
+            f"- Seturi anvelope actualizate: {tire_updated}",
+            f"- Seturi anvelope ignorate: {tire_skipped}",
+            f"- Echipamente auto adăugate: {equipment_added}",
+            f"- Echipamente auto actualizate: {equipment_updated}",
+            f"- Echipamente auto ignorate: {equipment_skipped}",
             f"- Stare notificări: {'inclusă în merge' if notification_merged else 'neinclusă / lipsă'}",
         ]
         if unknown_history_refs:
@@ -2102,6 +2306,190 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         if cleaned and not dry_run:
             await hass.config_entries.async_reload(target_entry.entry_id)
+
+
+    async def async_add_tire_set(call: ServiceCall) -> None:
+        """Add a tire set."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        if not vehicle_ref:
+            raise HomeAssistantError("Autovehiculul este obligatoriu.")
+
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+
+        for field_name in ("purchase_date", "last_mount_date"):
+            value = str(call.data.get(field_name, "") or "").strip()
+            if value:
+                try:
+                    dt_date.fromisoformat(value)
+                except ValueError as err:
+                    raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
+
+        tire_set = normalize_tire_set({
+            "set_id": f"tire_{uuid4().hex[:12]}",
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "tire_type": call.data.get("tire_type"),
+            "wheel_mount_type": call.data.get("wheel_mount_type", "tires_only"),
+            "brand_model": call.data.get("brand_model", ""),
+            "size": call.data.get("size", ""),
+            "dot": call.data.get("dot", ""),
+            "quantity": call.data.get("quantity", 4),
+            "purchase_date": call.data.get("purchase_date", ""),
+            "last_mount_date": call.data.get("last_mount_date", ""),
+            "last_mount_km": call.data.get("last_mount_km", 0),
+            "total_km": call.data.get("total_km", 0),
+            "cost": call.data.get("cost", 0),
+            "installed": call.data.get("installed", False),
+            "storage_location": call.data.get("storage_location", ""),
+            "pressure_front": call.data.get("pressure_front", ""),
+            "pressure_rear": call.data.get("pressure_rear", ""),
+            "notes": call.data.get("notes", ""),
+        })
+        await entry.runtime_data.tire_set_store.async_add_set(tire_set)
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_update_tire_set(call: ServiceCall) -> None:
+        """Update an existing tire set."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        set_id = str(call.data.get("set_id", "")).strip()
+        if not set_id:
+            raise HomeAssistantError("Setul de anvelope nu are ID valid.")
+
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+
+        for field_name in ("purchase_date", "last_mount_date"):
+            value = str(call.data.get(field_name, "") or "").strip()
+            if value:
+                try:
+                    dt_date.fromisoformat(value)
+                except ValueError as err:
+                    raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
+
+        updated_set = normalize_tire_set({
+            "set_id": set_id,
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "tire_type": call.data.get("tire_type"),
+            "wheel_mount_type": call.data.get("wheel_mount_type", "tires_only"),
+            "brand_model": call.data.get("brand_model", ""),
+            "size": call.data.get("size", ""),
+            "dot": call.data.get("dot", ""),
+            "quantity": call.data.get("quantity", 4),
+            "purchase_date": call.data.get("purchase_date", ""),
+            "last_mount_date": call.data.get("last_mount_date", ""),
+            "last_mount_km": call.data.get("last_mount_km", 0),
+            "total_km": call.data.get("total_km", 0),
+            "cost": call.data.get("cost", 0),
+            "installed": call.data.get("installed", False),
+            "storage_location": call.data.get("storage_location", ""),
+            "pressure_front": call.data.get("pressure_front", ""),
+            "pressure_rear": call.data.get("pressure_rear", ""),
+            "notes": call.data.get("notes", ""),
+        })
+        if not await entry.runtime_data.tire_set_store.async_update_set(set_id, updated_set):
+            raise HomeAssistantError("Setul de anvelope nu a fost găsit.")
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_delete_tire_set(call: ServiceCall) -> None:
+        """Delete a tire set."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        set_id = str(call.data.get("set_id", "")).strip()
+        if not set_id:
+            raise HomeAssistantError("Setul de anvelope nu are ID valid.")
+        if not await entry.runtime_data.tire_set_store.async_delete_set(set_id):
+            raise HomeAssistantError("Setul de anvelope nu a fost găsit.")
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    def _validate_equipment_dates(call: ServiceCall) -> None:
+        for field_name in ("purchase_date", "expiry_date"):
+            value = str(call.data.get(field_name, "") or "").strip()
+            if value:
+                try:
+                    dt_date.fromisoformat(value)
+                except ValueError as err:
+                    raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
+
+    async def async_add_equipment_item(call: ServiceCall) -> None:
+        """Add one vehicle equipment/safety item."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+        _validate_equipment_dates(call)
+        item = normalize_equipment_item({
+            "item_id": f"equipment_{uuid4().hex[:12]}",
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "equipment_type": call.data.get("equipment_type"),
+            "name": call.data.get("name", ""),
+            "purchase_date": call.data.get("purchase_date", ""),
+            "expiry_date": call.data.get("expiry_date", ""),
+            "cost": call.data.get("cost", 0),
+            "present": call.data.get("present", True),
+            "storage_location": call.data.get("storage_location", ""),
+            "notes": call.data.get("notes", ""),
+        })
+        await entry.runtime_data.equipment_item_store.async_add_item(item)
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_update_equipment_item(call: ServiceCall) -> None:
+        """Update one vehicle equipment/safety item."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        item_id = str(call.data.get("item_id", "")).strip()
+        if not item_id:
+            raise HomeAssistantError("Echipamentul nu are ID valid.")
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+        _validate_equipment_dates(call)
+        item = normalize_equipment_item({
+            "item_id": item_id,
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "equipment_type": call.data.get("equipment_type"),
+            "name": call.data.get("name", ""),
+            "purchase_date": call.data.get("purchase_date", ""),
+            "expiry_date": call.data.get("expiry_date", ""),
+            "cost": call.data.get("cost", 0),
+            "present": call.data.get("present", True),
+            "storage_location": call.data.get("storage_location", ""),
+            "notes": call.data.get("notes", ""),
+        })
+        if not await entry.runtime_data.equipment_item_store.async_update_item(item_id, item):
+            raise HomeAssistantError("Echipamentul nu a fost găsit.")
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_delete_equipment_item(call: ServiceCall) -> None:
+        """Delete one vehicle equipment/safety item."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        item_id = str(call.data.get("item_id", "")).strip()
+        if not item_id:
+            raise HomeAssistantError("Echipamentul nu are ID valid.")
+        if not await entry.runtime_data.equipment_item_store.async_delete_item(item_id):
+            raise HomeAssistantError("Echipamentul nu a fost găsit.")
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
@@ -2224,6 +2612,48 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             async_delete_fuel_receipt,
             schema=DELETE_FUEL_RECEIPT_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_ADD_TIRE_SET):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_TIRE_SET,
+            async_add_tire_set,
+            schema=ADD_TIRE_SET_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_TIRE_SET):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UPDATE_TIRE_SET,
+            async_update_tire_set,
+            schema=UPDATE_TIRE_SET_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_TIRE_SET):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DELETE_TIRE_SET,
+            async_delete_tire_set,
+            schema=DELETE_TIRE_SET_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_ADD_EQUIPMENT_ITEM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_EQUIPMENT_ITEM,
+            async_add_equipment_item,
+            schema=ADD_EQUIPMENT_ITEM_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_EQUIPMENT_ITEM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UPDATE_EQUIPMENT_ITEM,
+            async_update_equipment_item,
+            schema=UPDATE_EQUIPMENT_ITEM_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_EQUIPMENT_ITEM):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DELETE_EQUIPMENT_ITEM,
+            async_delete_equipment_item,
+            schema=DELETE_EQUIPMENT_ITEM_SCHEMA,
+        )
     hass.data[DOMAIN]["services_registered"] = True
 
 async def async_setup_entry(
@@ -2235,8 +2665,12 @@ async def async_setup_entry(
     vehicle_store = CarManagerVehicleStore(hass)
     service_history_store = CarManagerServiceHistoryStore(hass)
     fuel_receipt_store = CarManagerFuelReceiptStore(hass)
+    tire_set_store = CarManagerTireSetStore(hass)
+    equipment_item_store = CarManagerEquipmentItemStore(hass)
     await service_history_store.async_load()
     await fuel_receipt_store.async_load()
+    await tire_set_store.async_load()
+    await equipment_item_store.async_load()
     stored_vehicles = await vehicle_store.async_get_vehicles()
 
     option_vehicles = entry.options.get(
@@ -2259,6 +2693,8 @@ async def async_setup_entry(
         vehicle_store=vehicle_store,
         service_history_store=service_history_store,
         fuel_receipt_store=fuel_receipt_store,
+        tire_set_store=tire_set_store,
+        equipment_item_store=equipment_item_store,
         rovinieta_coordinator=rovinieta_coordinator,
     )
 

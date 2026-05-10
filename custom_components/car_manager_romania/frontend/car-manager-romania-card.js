@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.12"; }
+  static get version() { return "1.0.18"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -31,6 +31,21 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._fuelReceiptEditDrafts = this._fuelReceiptEditDrafts || {};
     this._fuelReceiptBusy = this._fuelReceiptBusy || null;
     this._fuelReceiptMessage = this._fuelReceiptMessage || {};
+    this._fuelVehicleFilter = this._fuelVehicleFilter || "all";
+    this._tireVehicleFilter = this._tireVehicleFilter || "all";
+    this._tireFormOpen = this._tireFormOpen || new Set();
+    this._tireSetDrafts = this._tireSetDrafts || {};
+    this._tireSetEditOpen = this._tireSetEditOpen || new Set();
+    this._tireSetEditDrafts = this._tireSetEditDrafts || {};
+    this._tireSetBusy = this._tireSetBusy || null;
+    this._tireSetMessage = this._tireSetMessage || {};
+    this._equipmentVehicleFilter = this._equipmentVehicleFilter || "all";
+    this._equipmentFormOpen = this._equipmentFormOpen || new Set();
+    this._equipmentDrafts = this._equipmentDrafts || {};
+    this._equipmentEditOpen = this._equipmentEditOpen || new Set();
+    this._equipmentEditDrafts = this._equipmentEditDrafts || {};
+    this._equipmentBusy = this._equipmentBusy || null;
+    this._equipmentMessage = this._equipmentMessage || {};
     this._serviceRecordMessage = this._serviceRecordMessage || {};
     this._inputEditing = this._inputEditing || false;
     this._backupOpen = this._backupOpen || false;
@@ -92,7 +107,11 @@ class CarManagerRomaniaCard extends HTMLElement {
             ? this._renderCostsTab(visibleVehicles)
             : this._activeTab === "fuel"
               ? this._renderFuelTab(visibleVehicles)
-              : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
+              : this._activeTab === "tires"
+                ? this._renderTiresTab(visibleVehicles)
+                : this._activeTab === "equipment"
+                  ? this._renderEquipmentTab(visibleVehicles)
+                  : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
         </div>
       </ha-card>
     `;
@@ -270,11 +289,28 @@ class CarManagerRomaniaCard extends HTMLElement {
 
   _renderTabs() {
     const active = this._activeTab || "vehicles";
+    const tabs = [
+      ["vehicles", "Mașini", "mdi:car-multiple"],
+      ["costs", "Costuri", "mdi:cash-multiple"],
+      ["fuel", "Combustibil", "mdi:gas-station"],
+      ["tires", "Anvelope", "mdi:tire"],
+      ["equipment", "Siguranță", "mdi:shield-car"],
+    ];
     return `
-      <div class="cmr-tabs" role="tablist">
-        <button class="cmr-tab ${active === "vehicles" ? "is-active" : ""}" data-action="set-tab" data-tab="vehicles" type="button">Autovehicule</button>
-        <button class="cmr-tab ${active === "costs" ? "is-active" : ""}" data-action="set-tab" data-tab="costs" type="button">Costuri</button>
-        <button class="cmr-tab ${active === "fuel" ? "is-active" : ""}" data-action="set-tab" data-tab="fuel" type="button">Combustibil</button>
+      <div class="cmr-tabs cmr-tabs-icon" role="tablist">
+        ${tabs.map(([key, label, icon]) => `
+          <button
+            class="cmr-tab ${active === key ? "is-active" : ""}"
+            data-action="set-tab"
+            data-tab="${key}"
+            type="button"
+            title="${this._escape(label)}"
+            aria-label="${this._escape(label)}"
+          >
+            <ha-icon icon="${icon}"></ha-icon>
+            <span class="cmr-tab-label">${this._escape(label)}</span>
+          </button>
+        `).join("")}
       </div>
     `;
   }
@@ -287,7 +323,13 @@ class CarManagerRomaniaCard extends HTMLElement {
     const fuelByVehicle = new Map(fuelSummaries.map((summary) => [summary.key, summary]));
     const totalAnnualOperational = summaries.reduce((sum, item) => sum + item.annual, 0);
     const totalAnnualFuel = fuelSummaries.reduce((sum, item) => sum + item.yearCost, 0);
-    const totalAnnual = totalAnnualOperational + totalAnnualFuel;
+    const tireSummaries = vehicles.map((vehicle) => this._tireSummaryForVehicle(vehicle));
+    const tireByVehicle = new Map(tireSummaries.map((summary) => [summary.key, summary]));
+    const totalAnnualTires = tireSummaries.reduce((sum, item) => sum + item.yearCost, 0);
+    const equipmentSummaries = vehicles.map((vehicle) => this._equipmentSummaryForVehicle(vehicle));
+    const equipmentByVehicle = new Map(equipmentSummaries.map((summary) => [summary.key, summary]));
+    const totalAnnualEquipment = equipmentSummaries.reduce((sum, item) => sum + item.yearCost, 0);
+    const totalAnnual = totalAnnualOperational + totalAnnualFuel + totalAnnualTires + totalAnnualEquipment;
     const total30 = summaries.reduce((sum, item) => sum + item.upcoming30, 0);
     const total90 = summaries.reduce((sum, item) => sum + item.upcoming90, 0);
     const allUpcoming90 = summaries.flatMap((summary) => summary.items90.map((item) => ({ ...item, vehicle_label: summary.label })));
@@ -296,6 +338,8 @@ class CarManagerRomaniaCard extends HTMLElement {
     const annualTypes = [
       { label: "Intervenții / termene", total: totalAnnualOperational },
       { label: "Combustibil", total: totalAnnualFuel },
+      { label: "Anvelope", total: totalAnnualTires },
+      { label: "Echipamente", total: totalAnnualEquipment },
     ].filter((item) => item.total > 0);
 
     return `
@@ -305,6 +349,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._renderCostSummaryCard("Total anul curent", totalAnnual, "Intervenții, termene și combustibil")}
           ${this._renderCostSummaryCard("Intervenții / termene", totalAnnualOperational, "Din istoricul intervențiilor salvate")}
           ${this._renderCostSummaryCard("Combustibil anul curent", totalAnnualFuel, "Din bonurile salvate")}
+          ${this._renderCostSummaryCard("Anvelope anul curent", totalAnnualTires, "Din seturile cumpărate")}
+          ${this._renderCostSummaryCard("Echipamente anul curent", totalAnnualEquipment, "Trusă, stingător și dotări")}
           ${this._renderCostSummaryCard("Următoarele 30 zile", total30, `${allUpcoming30.length} cheltuieli estimate`)}
           ${this._renderCostSummaryCard("Următoarele 90 zile", total90, `${allUpcoming90.length} cheltuieli estimate`)}
         </div>
@@ -313,6 +359,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           <div class="cmr-vehicle-cost-list">
             ${summaries.map((summary) => {
               const fuel = fuelByVehicle.get(summary.key)?.yearCost || 0;
+              const tires = tireByVehicle.get(summary.key)?.yearCost || 0;
               return `
               <article class="cmr-vehicle-cost-card">
                 <div class="cmr-vehicle-cost-head">
@@ -320,11 +367,12 @@ class CarManagerRomaniaCard extends HTMLElement {
                     <strong>${this._escape(summary.label)}</strong>
                     ${summary.plate ? `<small>${this._escape(summary.plate)}</small>` : ""}
                   </div>
-                  <div class="cmr-vehicle-cost-total">${this._formatMoney(summary.annual + fuel)}</div>
+                  <div class="cmr-vehicle-cost-total">${this._formatMoney(summary.annual + fuel + tires)}</div>
                 </div>
                 <div class="cmr-vehicle-cost-grid">
                   <div><span>Intervenții</span><strong>${this._formatMoney(summary.annual)}</strong></div>
                   <div><span>Combustibil</span><strong>${this._formatMoney(fuel)}</strong></div>
+                  <div><span>Anvelope</span><strong>${this._formatMoney(tires)}</strong></div>
                   <div><span>30 zile</span><strong>${this._formatMoney(summary.upcoming30)}</strong></div>
                   <div><span>90 zile</span><strong>${this._formatMoney(summary.upcoming90)}</strong></div>
                 </div>
@@ -362,23 +410,57 @@ class CarManagerRomaniaCard extends HTMLElement {
   _renderFuelTab(vehicles) {
     if (!vehicles.length) return this._renderEmpty();
 
-    const summaries = vehicles.map((vehicle) => this._fuelSummaryForVehicle(vehicle));
+    const allSummaries = vehicles.map((vehicle) => this._fuelSummaryForVehicle(vehicle));
+    if (this._fuelVehicleFilter !== "all" && !allSummaries.some((summary) => summary.key === this._fuelVehicleFilter)) {
+      this._fuelVehicleFilter = "all";
+    }
+    const summaries = this._fuelVehicleFilter === "all"
+      ? allSummaries
+      : allSummaries.filter((summary) => summary.key === this._fuelVehicleFilter);
     const totalYear = summaries.reduce((sum, item) => sum + item.yearCost, 0);
     const totalMonth = summaries.reduce((sum, item) => sum + item.monthCost, 0);
+    const totalYearQuantity = summaries.reduce((sum, item) => sum + item.yearQuantity, 0);
+    const totalMonthQuantity = summaries.reduce((sum, item) => sum + item.monthQuantity, 0);
+    const totalYearCostForUnit = summaries.reduce((sum, item) => sum + item.yearUnitCostBase, 0);
+    const averageUnitPrice = totalYearQuantity > 0 ? totalYearCostForUnit / totalYearQuantity : 0;
     const receipts = summaries.flatMap((summary) => summary.receipts.map((receipt) => ({ ...receipt, vehicle_label: summary.label })));
     const latestReceipt = this._latestFuelReceipt(receipts);
 
     return `
       <section class="cmr-costs-panel">
-        <div class="cmr-section-title">Combustibil</div>
+        <div class="cmr-section-head cmr-fuel-head">
+          <div>
+            <div class="cmr-section-title">Combustibil</div>
+            <div class="cmr-row-muted">Rapoarte calculate din bonurile salvate</div>
+          </div>
+          <div class="cmr-fuel-head-actions">
+            ${this._renderFuelVehicleFilter(allSummaries)}
+            <button class="cmr-mini-action" type="button" data-action="export-fuel-history">Export combustibil</button>
+          </div>
+        </div>
         <div class="cmr-cost-summary-grid">
           ${this._renderCostSummaryCard("Combustibil anul curent", totalYear, "Din bonurile salvate")}
           ${this._renderCostSummaryCard("Combustibil luna curentă", totalMonth, "Din bonurile salvate")}
+          ${this._renderCostSummaryCard("Cantitate anul curent", totalYearQuantity ? `${this._formatNumber(totalYearQuantity, 2)} L/kWh` : "—", totalMonthQuantity ? `Luna curentă: ${this._formatNumber(totalMonthQuantity, 2)} L/kWh` : "Fără alimentări luna curentă")}
+          ${this._renderCostSummaryCard("Preț mediu", averageUnitPrice ? `${this._formatNumber(averageUnitPrice, 2)} RON/unitate` : "—", "Calculat din anul curent")}
           ${this._renderCostSummaryCard("Bonuri salvate", `${receipts.length}`, "Total alimentări afișate")}
           ${latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(latestReceipt.total_cost), `${latestReceipt.date || ""} · ${latestReceipt.vehicle_label || ""}`) : this._renderCostSummaryCard("Ultimul bon", "—", "Nu există bonuri salvate")}
         </div>
         ${summaries.map((summary) => this._renderFuelVehiclePanel(summary)).join("")}
       </section>
+    `;
+  }
+
+  _renderFuelVehicleFilter(summaries) {
+    if (!Array.isArray(summaries) || summaries.length <= 1) return "";
+    return `
+      <label class="cmr-fuel-filter">
+        <span>Autovehicul</span>
+        <select data-action="fuel-filter">
+          <option value="all" ${this._fuelVehicleFilter === "all" ? "selected" : ""}>Toate</option>
+          ${summaries.map((summary) => `<option value="${this._escape(summary.key)}" ${this._fuelVehicleFilter === summary.key ? "selected" : ""}>${this._escape(summary.label)}</option>`).join("")}
+        </select>
+      </label>
     `;
   }
 
@@ -389,6 +471,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const consumptionSensor = this._findSensorByName(vehicle, ["consum", "mediu", "combustibil"]);
     const receipts = Array.isArray(attrs.fuel_receipts) ? attrs.fuel_receipts : [];
     const intervals = Array.isArray(attrs.fuel_consumption_intervals) ? attrs.fuel_consumption_intervals : [];
+    const fuelStats = this._fuelReceiptStats(receipts);
     return {
       vehicle,
       key: vehicle.vehicle_id || vehicle.key || vehicle.label,
@@ -400,7 +483,54 @@ class CarManagerRomaniaCard extends HTMLElement {
       latestReceipt: this._latestFuelReceipt(receipts),
       receipts,
       intervals,
+      ...fuelStats,
     };
+  }
+
+  _fuelReceiptStats(receipts) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const stats = {
+      yearQuantity: 0,
+      monthQuantity: 0,
+      yearUnitCostBase: 0,
+      monthUnitCostBase: 0,
+      yearReceipts: 0,
+      monthReceipts: 0,
+    };
+
+    for (const receipt of Array.isArray(receipts) ? receipts : []) {
+      if (!receipt || typeof receipt !== "object") continue;
+      const dateParts = this._dateParts(receipt.date);
+      if (!dateParts || dateParts.year !== currentYear) continue;
+      const quantity = this._toNumber(receipt.quantity);
+      const totalCost = this._toNumber(receipt.total_cost);
+      if (quantity > 0) {
+        stats.yearQuantity += quantity;
+        stats.yearUnitCostBase += totalCost;
+      }
+      stats.yearReceipts += 1;
+      if (dateParts.month === currentMonth) {
+        if (quantity > 0) {
+          stats.monthQuantity += quantity;
+          stats.monthUnitCostBase += totalCost;
+        }
+        stats.monthReceipts += 1;
+      }
+    }
+
+    stats.yearQuantity = Math.round(stats.yearQuantity * 1000) / 1000;
+    stats.monthQuantity = Math.round(stats.monthQuantity * 1000) / 1000;
+    stats.yearAverageUnitPrice = stats.yearQuantity > 0 ? stats.yearUnitCostBase / stats.yearQuantity : 0;
+    stats.monthAverageUnitPrice = stats.monthQuantity > 0 ? stats.monthUnitCostBase / stats.monthQuantity : 0;
+    return stats;
+  }
+
+  _dateParts(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
   }
 
   _latestFuelReceipt(receipts) {
@@ -427,16 +557,29 @@ class CarManagerRomaniaCard extends HTMLElement {
           <button class="cmr-mini-action" type="button" data-action="toggle-fuel-form" data-vehicle="${this._escape(summary.key)}">${open ? "Închide" : "Adaugă bon"}</button>
         </div>
         <div class="cmr-cost-summary-grid cmr-fuel-summary-grid">
-          ${this._renderCostSummaryCard("An curent", summary.yearCost, "combustibil")}
-          ${this._renderCostSummaryCard("Luna curentă", summary.monthCost, "combustibil")}
+          ${this._renderCostSummaryCard("An curent", summary.yearCost, `${this._formatNumber(summary.yearQuantity, 2)} L/kWh · ${summary.yearReceipts} bonuri`)}
+          ${this._renderCostSummaryCard("Luna curentă", summary.monthCost, `${this._formatNumber(summary.monthQuantity, 2)} L/kWh · ${summary.monthReceipts} bonuri`)}
+          ${this._renderCostSummaryCard("Preț mediu", summary.yearAverageUnitPrice ? `${this._formatNumber(summary.yearAverageUnitPrice, 2)} RON/unitate` : "—", "anul curent")}
           ${this._renderCostSummaryCard("Consum mediu", summary.averageConsumption && summary.averageConsumption !== "unknown" && summary.averageConsumption !== "unavailable" ? `${summary.averageConsumption} L/100 km` : "—", latestInterval ? `${latestInterval.distance_km} km · ${latestInterval.liters} L · ${this._formatMoney(latestInterval.cost)}` : "necalculat")}
           ${summary.latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(summary.latestReceipt.total_cost), `${summary.latestReceipt.date || ""} · ${summary.latestReceipt.quantity || ""} ${summary.latestReceipt.unit || "L"}`) : this._renderCostSummaryCard("Ultimul bon", "—", "nu există")}
         </div>
+        ${this._renderFuelConsumptionHint(summary)}
         ${open ? this._renderFuelReceiptForm(summary.vehicle) : ""}
         ${message ? `<div class="cmr-message">${this._escape(message)}</div>` : ""}
         ${this._renderFuelReceipts(summary)}
       </div>
     `;
+  }
+
+  _renderFuelConsumptionHint(summary) {
+    const receipts = Array.isArray(summary.receipts) ? summary.receipts : [];
+    const intervals = Array.isArray(summary.intervals) ? summary.intervals : [];
+    if (!receipts.length || intervals.length) return "";
+    const fullCount = receipts.filter((receipt) => receipt && receipt.full_tank && (receipt.unit || "L") === "L").length;
+    const message = fullCount < 2
+      ? "Consum mediu necalculat: sunt necesare cel puțin două alimentări marcate „Plin făcut”."
+      : "Consum mediu necalculat încă: verifică ordinea kilometrajului și alimentările marcate „Plin făcut”.";
+    return `<div class="cmr-info-note">${this._escape(message)}</div>`;
   }
 
   _renderFuelMini(vehicle) {
@@ -479,7 +622,8 @@ class CarManagerRomaniaCard extends HTMLElement {
   _renderFuelReceipts(summary) {
     const receipts = Array.isArray(summary.receipts) ? summary.receipts : [];
     if (!receipts.length) return `<div class="cmr-history-empty">Nu există bonuri de combustibil salvate încă.</div>`;
-    return `<div class="cmr-cost-list">${receipts.slice(0, 8).map((receipt) => {
+    const latestReceipts = receipts.slice(0, 10);
+    return `<div class="cmr-recent-title">Ultimele alimentări</div><div class="cmr-cost-list">${latestReceipts.map((receipt) => {
       const receiptId = receipt.receipt_id || "";
       const isEditing = receiptId && this._fuelReceiptEditOpen.has(receiptId);
       return `
@@ -492,7 +636,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           <div class="cmr-cost-item-value">${this._formatMoney(receipt.total_cost)}</div>
           <div class="cmr-inline-actions">
             <button class="cmr-mini-action" type="button" data-action="toggle-edit-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}">${isEditing ? "Renunță" : "Editează"}</button>
-            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}">Șterge</button>
+            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}" data-receipt-label="${this._escape(`${receipt.date || "fără dată"} · ${receipt.fuel_type_label || "Combustibil"} · ${this._formatMoney(receipt.total_cost)}`)}">Șterge</button>
           </div>
         </div>
         ${isEditing ? this._renderFuelReceiptEditForm(summary.vehicle, receipt) : ""}
@@ -560,6 +704,210 @@ class CarManagerRomaniaCard extends HTMLElement {
     return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
   }
 
+  _renderTiresTab(vehicles) {
+    if (!vehicles.length) return this._renderEmpty();
+
+    const allSummaries = vehicles.map((vehicle) => this._tireSummaryForVehicle(vehicle));
+    if (this._tireVehicleFilter !== "all" && !allSummaries.some((summary) => summary.key === this._tireVehicleFilter)) {
+      this._tireVehicleFilter = "all";
+    }
+    const summaries = this._tireVehicleFilter === "all"
+      ? allSummaries
+      : allSummaries.filter((summary) => summary.key === this._tireVehicleFilter);
+    const totalSets = summaries.reduce((sum, item) => sum + item.sets.length, 0);
+    const mountedSets = summaries.reduce((sum, item) => sum + item.mountedSets.length, 0);
+    const totalAnnual = summaries.reduce((sum, item) => sum + item.yearCost, 0);
+    return `
+      <section class="cmr-costs-panel">
+        <div class="cmr-section-head cmr-fuel-head">
+          <div>
+            <div class="cmr-section-title">Anvelope</div>
+            <div class="cmr-row-muted">Seturi vară / iarnă / all season, DOT, km, jante, cost și loc depozitare</div>
+          </div>
+          <div class="cmr-fuel-head-actions">
+            ${this._renderTireVehicleFilter(allSummaries)}
+          </div>
+        </div>
+        <div class="cmr-cost-summary-grid">
+          ${this._renderCostSummaryCard("Seturi salvate", `${totalSets}`, this._tireVehicleFilter === "all" ? "Total seturi anvelope" : "Seturi pentru mașina selectată")}
+          ${this._renderCostSummaryCard("Montate acum", `${mountedSets}`, "Seturi marcate ca montate")}
+          ${this._renderCostSummaryCard("Cost an curent", totalAnnual, "După data cumpărării")}
+        </div>
+        ${summaries.map((summary) => this._renderTireVehiclePanel(summary)).join("")}
+      </section>
+    `;
+  }
+
+  _renderTireVehicleFilter(summaries) {
+    if (!Array.isArray(summaries) || summaries.length <= 1) return "";
+    return `
+      <label class="cmr-fuel-filter">
+        <span>Mașină</span>
+        <select data-action="tire-filter">
+          <option value="all" ${this._tireVehicleFilter === "all" ? "selected" : ""}>Toate</option>
+          ${summaries.map((summary) => `<option value="${this._escape(summary.key)}" ${this._tireVehicleFilter === summary.key ? "selected" : ""}>${this._escape(summary.label)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  _tireSummaryForVehicle(vehicle) {
+    const attrs = this._vehicleStatusAttributes(vehicle);
+    const sets = Array.isArray(attrs.tire_sets) ? attrs.tire_sets : [];
+    const currentYear = new Date().getFullYear();
+    const yearCost = sets.reduce((sum, item) => {
+      const parts = this._dateParts(item.purchase_date);
+      return sum + (parts && parts.year === currentYear ? this._toNumber(item.cost) : 0);
+    }, 0);
+    return {
+      vehicle,
+      key: vehicle.vehicle_id || vehicle.key || vehicle.label,
+      label: vehicle.label || "Autovehicul",
+      plate: vehicle.plate || "",
+      sets,
+      mountedSets: sets.filter((item) => item && item.installed),
+      yearCost,
+    };
+  }
+
+  _renderTireVehiclePanel(summary) {
+    const open = this._tireFormOpen.has(summary.key);
+    const message = this._tireSetMessage[summary.key] || "";
+    return `
+      <div class="cmr-cost-section">
+        <div class="cmr-section-head">
+          <div>
+            <div class="cmr-section-title">${this._escape(summary.label)}</div>
+            <div class="cmr-row-muted">${this._escape(summary.plate || "")}</div>
+          </div>
+          <button class="cmr-mini-action" type="button" data-action="toggle-tire-form" data-vehicle="${this._escape(summary.key)}">${open ? "Închide" : "Adaugă set"}</button>
+        </div>
+        <div class="cmr-cost-summary-grid cmr-fuel-summary-grid">
+          ${this._renderCostSummaryCard("Seturi", `${summary.sets.length}`, `${summary.mountedSets.length} montate acum`)}
+          ${this._renderCostSummaryCard("Cost an curent", summary.yearCost, "după data cumpărării")}
+          ${summary.mountedSets[0] ? this._renderCostSummaryCard("Montate", summary.mountedSets[0].tire_type_label || "—", `${summary.mountedSets[0].size || ""} ${summary.mountedSets[0].brand_model || ""}`) : this._renderCostSummaryCard("Montate", "—", "nu este marcat niciun set")}
+        </div>
+        ${open ? this._renderTireSetForm(summary.vehicle) : ""}
+        ${message ? `<div class="cmr-message">${this._escape(message)}</div>` : ""}
+        ${this._renderTireSets(summary)}
+      </div>
+    `;
+  }
+
+  _renderTireMini(vehicle) {
+    const summary = this._tireSummaryForVehicle(vehicle);
+    if (!summary.sets.length) return "";
+    return `
+      <div class="cmr-section">
+        <div class="cmr-section-title">Anvelope</div>
+        ${summary.mountedSets.length
+          ? summary.mountedSets.map((item) => this._renderRow("Montate", `${item.tire_type_label || "—"} · ${item.size || "dimensiune necompletată"}${item.wheel_mount_type_label ? ` · ${item.wheel_mount_type_label}` : ""}`, item.brand_model || "", item.dot ? `DOT ${item.dot}` : "", "")).join("")
+          : this._renderRow("Montate", "Niciun set marcat ca montat", "", "", "")}
+      </div>
+    `;
+  }
+
+  _tireTypeOptions(selected) {
+    const options = [["summer", "Vară"], ["winter", "Iarnă"], ["all_season", "All season"]];
+    const selectedValue = selected || "summer";
+    return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  _tireMountTypeOptions(selected) {
+    const options = [["tires_only", "Doar cauciucuri"], ["on_rims", "Pe jante"]];
+    const selectedValue = selected || "tires_only";
+    return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  _renderTireSetForm(vehicle) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key || vehicle.label || "";
+    const draft = this._tireSetDrafts[vehicleKey] || {};
+    const today = new Date().toISOString().slice(0, 10);
+    return `
+      <form class="cmr-history-form" data-form="tire-set" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
+        <div class="cmr-add-grid">
+          <label class="cmr-field"><span>Tip anvelope</span><select name="tire_type">${this._tireTypeOptions(draft.tire_type || "summer")}</select></label>
+          <label class="cmr-field"><span>Marcă / model</span><input type="text" name="brand_model" value="${this._escape(draft.brand_model || "")}" placeholder="ex. Michelin Primacy 4"></label>
+          <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(draft.size || "")}" placeholder="ex. 245/45 R18"></label>
+          <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(draft.dot || "")}" placeholder="ex. 3523"></label>
+          <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(draft.quantity || "4")}"></label>
+          <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(draft.wheel_mount_type || "tires_only")}</select></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || today)}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(draft.last_mount_date || "")}"></label>
+          <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(draft.last_mount_km || "0")}"></label>
+          <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(draft.total_km || "0")}"></label>
+          <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
+          <label class="cmr-field"><span>Depozitare</span><input type="text" name="storage_location" value="${this._escape(draft.storage_location || "")}" placeholder="acasă / service"></label>
+          <label class="cmr-field"><span>Presiune față</span><input type="text" name="pressure_front" value="${this._escape(draft.pressure_front || "")}" placeholder="ex. 2.4 bar"></label>
+          <label class="cmr-field"><span>Presiune spate</span><input type="text" name="pressure_rear" value="${this._escape(draft.pressure_rear || "")}" placeholder="ex. 2.3 bar"></label>
+        </div>
+        <label class="cmr-check"><input type="checkbox" name="installed" ${draft.installed ? "checked" : ""}> Set montat acum</label>
+        <label class="cmr-field"><span>Observații</span><textarea name="notes" rows="2">${this._escape(draft.notes || "")}</textarea></label>
+        <div class="cmr-add-actions"><button class="cmr-action" type="submit" ${this._tireSetBusy === vehicleKey ? "disabled" : ""}>${this._tireSetBusy === vehicleKey ? "Se salvează..." : "Salvează setul"}</button></div>
+      </form>
+    `;
+  }
+
+  _renderTireSets(summary) {
+    const sets = Array.isArray(summary.sets) ? summary.sets : [];
+    if (!sets.length) return `<div class="cmr-history-empty">Nu există seturi de anvelope salvate pentru acest autovehicul.</div>`;
+    return `<div class="cmr-cost-list">${sets.map((item) => this._renderTireSetItem(summary, item)).join("")}</div>`;
+  }
+
+  _renderTireSetItem(summary, item) {
+    const setId = item.set_id || "";
+    const editOpen = setId && this._tireSetEditOpen.has(setId);
+    const title = [item.tire_type_label || "Anvelope", item.brand_model || "", item.size || ""].filter(Boolean).join(" · ");
+    const meta = [item.dot ? `DOT ${item.dot}` : "", item.quantity ? `${item.quantity} buc.` : "", item.wheel_mount_type_label || "", item.total_km ? `${item.total_km} km` : "", item.installed ? "montate acum" : "depozitate", item.storage_location || ""].filter(Boolean).join(" · ");
+    return `
+      <div class="cmr-cost-item cmr-cost-item-block">
+        <div class="cmr-cost-item-main">
+          <div class="cmr-cost-item-title">${this._escape(title || "Set anvelope")} ${item.installed ? `<span>montat</span>` : ""}</div>
+          <div class="cmr-row-muted">${this._escape(meta)}</div>
+          ${item.notes ? `<div class="cmr-history-notes">${this._escape(item.notes)}</div>` : ""}
+        </div>
+        <div class="cmr-cost-item-side">
+          <div class="cmr-cost-item-value">${this._formatMoney(item.cost)}</div>
+          <div class="cmr-inline-actions">
+            <button class="cmr-mini-action" type="button" data-action="toggle-edit-tire-set" data-set-id="${this._escape(setId)}">${editOpen ? "Renunță" : "Editează"}</button>
+            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-tire-set" data-set-id="${this._escape(setId)}" data-vehicle="${this._escape(summary.key)}" data-tire-label="${this._escape(title)}">Șterge</button>
+          </div>
+        </div>
+        ${editOpen ? this._renderTireSetEditForm(summary.vehicle, item) : ""}
+      </div>`;
+  }
+
+  _renderTireSetEditForm(vehicle, item) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key || vehicle.label || "";
+    const setId = item.set_id || "";
+    const draft = this._tireSetEditDrafts[setId] || {};
+    const value = (key, fallback = "") => draft[key] ?? item[key] ?? fallback;
+    const installed = Object.prototype.hasOwnProperty.call(draft, "installed") ? draft.installed : !!item.installed;
+    return `
+      <form class="cmr-history-form cmr-inline-edit-form" data-form="tire-set-edit" data-set-id="${this._escape(setId)}" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
+        <div class="cmr-add-grid">
+          <label class="cmr-field"><span>Tip anvelope</span><select name="tire_type">${this._tireTypeOptions(value("tire_type", "summer"))}</select></label>
+          <label class="cmr-field"><span>Marcă / model</span><input type="text" name="brand_model" value="${this._escape(value("brand_model"))}"></label>
+          <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(value("size"))}"></label>
+          <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(value("dot"))}"></label>
+          <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(value("quantity", "4"))}"></label>
+          <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(value("wheel_mount_type", "tires_only"))}</select></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(value("last_mount_date"))}"></label>
+          <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(value("last_mount_km", "0"))}"></label>
+          <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(value("total_km", "0"))}"></label>
+          <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
+          <label class="cmr-field"><span>Depozitare</span><input type="text" name="storage_location" value="${this._escape(value("storage_location"))}"></label>
+          <label class="cmr-field"><span>Presiune față</span><input type="text" name="pressure_front" value="${this._escape(value("pressure_front"))}"></label>
+          <label class="cmr-field"><span>Presiune spate</span><input type="text" name="pressure_rear" value="${this._escape(value("pressure_rear"))}"></label>
+        </div>
+        <label class="cmr-check"><input type="checkbox" name="installed" ${installed ? "checked" : ""}> Set montat acum</label>
+        <label class="cmr-field"><span>Observații</span><textarea name="notes" rows="2">${this._escape(value("notes"))}</textarea></label>
+        <div class="cmr-add-actions"><button class="cmr-action" type="submit" ${this._tireSetBusy === setId ? "disabled" : ""}>${this._tireSetBusy === setId ? "Se salvează..." : "Salvează modificările"}</button></div>
+      </form>
+    `;
+  }
+
   _renderCostSummaryCard(title, amount, subtitle) {
     const displayValue = typeof amount === "string" ? amount : this._formatMoney(amount);
     return `
@@ -569,6 +917,15 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-row-muted">${this._escape(subtitle || "")}</div>
       </div>
     `;
+  }
+
+  _formatNumber(value, decimals = 2) {
+    const number = this._toNumber(value);
+    if (!Number.isFinite(number)) return "0";
+    return number.toLocaleString("ro-RO", {
+      minimumFractionDigits: number % 1 === 0 ? 0 : decimals,
+      maximumFractionDigits: decimals,
+    });
   }
 
   _costSummaryForVehicle(vehicle) {
@@ -696,7 +1053,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${expanded ? "Ascunde detalii" : "Detalii"}
         </button>
       </div>
-      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
+      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderTireMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
     `;
   }
 
@@ -894,7 +1251,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       ? `<button class="cmr-mini-action cmr-secondary" data-action="toggle-edit-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}">${editOpen ? "Închide" : "Editează"}</button>`
       : "";
     const deleteButton = recordId
-      ? `<button class="cmr-mini-action cmr-danger" data-action="delete-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}" data-updates-maintenance="${record.update_maintenance ? "1" : "0"}" data-restored="${restored ? "1" : "0"}">Șterge</button>`
+      ? `<button class="cmr-mini-action cmr-danger" data-action="delete-service-record" data-record-id="${this._escape(recordId)}" data-vehicle="${this._escape(vehicleKey)}" data-record-title="${this._escape(title)}" data-updates-maintenance="${record.update_maintenance ? "1" : "0"}" data-restored="${restored ? "1" : "0"}">Șterge</button>`
       : "";
 
     return `
@@ -1405,9 +1762,24 @@ class CarManagerRomaniaCard extends HTMLElement {
     this.querySelectorAll('[data-action="set-tab"]').forEach((button) => {
       button.addEventListener("click", () => {
         const tab = button.dataset.tab || "vehicles";
-        this._activeTab = ["costs", "fuel"].includes(tab) ? tab : "vehicles";
+        this._activeTab = ["costs", "fuel", "tires", "equipment"].includes(tab) ? tab : "vehicles";
         this.render();
       });
+    });
+
+    this.querySelector('[data-action="fuel-filter"]')?.addEventListener("change", (event) => {
+      this._fuelVehicleFilter = event.currentTarget.value || "all";
+      this.render();
+    });
+
+    this.querySelector('[data-action="tire-filter"]')?.addEventListener("change", (event) => {
+      this._tireVehicleFilter = event.currentTarget.value || "all";
+      this.render();
+    });
+
+    this.querySelector('[data-action="equipment-filter"]')?.addEventListener("change", (event) => {
+      this._equipmentVehicleFilter = event.currentTarget.value || "all";
+      this.render();
     });
 
     this.querySelector('[data-action="cancel-add-vehicle"]')?.addEventListener("click", () => {
@@ -1473,6 +1845,94 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
+    this.querySelectorAll('button[data-action="toggle-tire-form"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.vehicle;
+        if (!key) return;
+        if (this._tireFormOpen.has(key)) this._tireFormOpen.delete(key); else this._tireFormOpen.add(key);
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="tire-set"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureTireSetDraft(form);
+        this._inputEditing = false;
+        this._addTireSet(form);
+      });
+      form.addEventListener("input", () => this._captureTireSetDraft(form));
+      form.addEventListener("change", () => this._captureTireSetDraft(form));
+    });
+
+    this.querySelectorAll('button[data-action="toggle-edit-tire-set"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const setId = button.dataset.setId;
+        if (!setId) return;
+        if (this._tireSetEditOpen.has(setId)) this._tireSetEditOpen.delete(setId); else this._tireSetEditOpen.add(setId);
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="tire-set-edit"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureTireSetEditDraft(form);
+        this._inputEditing = false;
+        this._updateTireSet(form);
+      });
+      form.addEventListener("input", () => this._captureTireSetEditDraft(form));
+      form.addEventListener("change", () => this._captureTireSetEditDraft(form));
+    });
+
+    this.querySelectorAll('button[data-action="delete-tire-set"]').forEach((button) => {
+      button.addEventListener("click", () => this._deleteTireSet(button.dataset.setId, button.dataset.vehicle, button.dataset.tireLabel));
+    });
+
+    this.querySelectorAll('button[data-action="toggle-equipment-form"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.vehicle;
+        if (!key) return;
+        if (this._equipmentFormOpen.has(key)) this._equipmentFormOpen.delete(key); else this._equipmentFormOpen.add(key);
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="equipment-item"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureEquipmentDraft(form);
+        this._inputEditing = false;
+        this._addEquipmentItem(form);
+      });
+      form.addEventListener("input", () => this._captureEquipmentDraft(form));
+      form.addEventListener("change", () => this._captureEquipmentDraft(form));
+    });
+
+    this.querySelectorAll('button[data-action="toggle-edit-equipment-item"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const itemId = button.dataset.itemId;
+        if (!itemId) return;
+        if (this._equipmentEditOpen.has(itemId)) this._equipmentEditOpen.delete(itemId); else this._equipmentEditOpen.add(itemId);
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="equipment-item-edit"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureEquipmentEditDraft(form);
+        this._inputEditing = false;
+        this._updateEquipmentItem(form);
+      });
+      form.addEventListener("input", () => this._captureEquipmentEditDraft(form));
+      form.addEventListener("change", () => this._captureEquipmentEditDraft(form));
+    });
+
+    this.querySelectorAll('button[data-action="delete-equipment-item"]').forEach((button) => {
+      button.addEventListener("click", () => this._deleteEquipmentItem(button.dataset.itemId, button.dataset.vehicle, button.dataset.equipmentLabel));
+    });
+
     this.querySelectorAll('form[data-form="fuel-receipt"]').forEach((form) => {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -1497,8 +1957,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
+    this.querySelectorAll('button[data-action="export-fuel-history"]').forEach((button) => {
+      button.addEventListener("click", () => this._exportFuelHistory());
+    });
+
     this.querySelectorAll('button[data-action="delete-fuel-receipt"]').forEach((button) => {
-      button.addEventListener("click", () => this._deleteFuelReceipt(button.dataset.receiptId, button.dataset.vehicle));
+      button.addEventListener("click", () => this._deleteFuelReceipt(button.dataset.receiptId, button.dataset.vehicle, button.dataset.receiptLabel));
     });
 
     this.querySelectorAll('form[data-form="fuel-receipt-edit"]').forEach((form) => {
@@ -1531,6 +1995,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       button.addEventListener("click", () => this._deleteServiceRecord(button.dataset.recordId, button.dataset.vehicle, {
         updatesMaintenance: button.dataset.updatesMaintenance === "1",
         restored: button.dataset.restored === "1",
+        title: button.dataset.recordTitle || "",
       }));
     });
 
@@ -1683,6 +2148,461 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
 
+  _renderEquipmentTab(vehicles) {
+    if (!vehicles.length) return this._renderEmpty();
+
+    const allSummaries = vehicles.map((vehicle) => this._equipmentSummaryForVehicle(vehicle));
+    if (this._equipmentVehicleFilter !== "all" && !allSummaries.some((summary) => summary.key === this._equipmentVehicleFilter)) {
+      this._equipmentVehicleFilter = "all";
+    }
+    const summaries = this._equipmentVehicleFilter === "all"
+      ? allSummaries
+      : allSummaries.filter((summary) => summary.key === this._equipmentVehicleFilter);
+    const totalItems = summaries.reduce((sum, item) => sum + item.items.length, 0);
+    const presentItems = summaries.reduce((sum, item) => sum + item.presentItems.length, 0);
+    const expiredItems = summaries.reduce((sum, item) => sum + item.expiredItems.length, 0);
+    const soonItems = summaries.reduce((sum, item) => sum + item.soonItems.length, 0);
+    const totalAnnual = summaries.reduce((sum, item) => sum + item.yearCost, 0);
+    return `
+      <section class="cmr-costs-panel">
+        <div class="cmr-section-head cmr-fuel-head">
+          <div>
+            <div class="cmr-section-title">Echipamente siguranță</div>
+            <div class="cmr-row-muted">Trusă medicală, stingător, triunghiuri, vestă, kit pană și alte dotări</div>
+          </div>
+          <div class="cmr-fuel-head-actions">
+            ${this._renderEquipmentVehicleFilter(allSummaries)}
+          </div>
+        </div>
+        <div class="cmr-cost-summary-grid">
+          ${this._renderCostSummaryCard("Echipamente", `${totalItems}`, this._equipmentVehicleFilter === "all" ? "Total elemente salvate" : "Elemente pentru mașina selectată")}
+          ${this._renderCostSummaryCard("Prezente", `${presentItems}`, "Marcate ca existente în mașină")}
+          ${this._renderCostSummaryCard("Expirate", `${expiredItems}`, soonItems ? `${soonItems} expiră în 90 zile` : "fără alerte apropiate")}
+          ${this._renderCostSummaryCard("Cost an curent", totalAnnual, "După data cumpărării")}
+        </div>
+        ${summaries.map((summary) => this._renderEquipmentVehiclePanel(summary)).join("")}
+      </section>
+    `;
+  }
+
+  _renderEquipmentVehicleFilter(summaries) {
+    if (!Array.isArray(summaries) || summaries.length <= 1) return "";
+    return `
+      <label class="cmr-fuel-filter">
+        <span>Mașină</span>
+        <select data-action="equipment-filter">
+          <option value="all" ${this._equipmentVehicleFilter === "all" ? "selected" : ""}>Toate</option>
+          ${summaries.map((summary) => `<option value="${this._escape(summary.key)}" ${this._equipmentVehicleFilter === summary.key ? "selected" : ""}>${this._escape(summary.label)}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+
+  _equipmentSummaryForVehicle(vehicle) {
+    const attrs = this._vehicleStatusAttributes(vehicle);
+    const items = Array.isArray(attrs.equipment_items) ? attrs.equipment_items : [];
+    const currentYear = new Date().getFullYear();
+    const yearCost = items.reduce((sum, item) => {
+      const parts = this._dateParts(item.purchase_date);
+      return sum + (parts && parts.year === currentYear ? this._toNumber(item.cost) : 0);
+    }, 0);
+    const expiredItems = items.filter((item) => item && item.status === "expirat");
+    const soonItems = items.filter((item) => item && (item.status === "critic" || item.status === "în curând"));
+    return {
+      vehicle,
+      key: vehicle.vehicle_id || vehicle.key || vehicle.label,
+      label: vehicle.label || "Autovehicul",
+      plate: vehicle.plate || "",
+      items,
+      presentItems: items.filter((item) => item && item.present),
+      expiredItems,
+      soonItems,
+      yearCost,
+    };
+  }
+
+  _renderEquipmentVehiclePanel(summary) {
+    const open = this._equipmentFormOpen.has(summary.key);
+    const message = this._equipmentMessage[summary.key] || "";
+    return `
+      <div class="cmr-cost-section">
+        <div class="cmr-section-head">
+          <div>
+            <div class="cmr-section-title">${this._escape(summary.label)}</div>
+            <div class="cmr-row-muted">${this._escape(summary.plate || "")}</div>
+          </div>
+          <button class="cmr-mini-action" type="button" data-action="toggle-equipment-form" data-vehicle="${this._escape(summary.key)}">${open ? "Închide" : "Adaugă"}</button>
+        </div>
+        <div class="cmr-cost-summary-grid cmr-fuel-summary-grid">
+          ${this._renderCostSummaryCard("Elemente", `${summary.items.length}`, `${summary.presentItems.length} prezente`)}
+          ${this._renderCostSummaryCard("Alerte", `${summary.expiredItems.length + summary.soonItems.length}`, `${summary.expiredItems.length} expirate`)}
+          ${this._renderCostSummaryCard("Cost an curent", summary.yearCost, "după data cumpărării")}
+        </div>
+        ${open ? this._renderEquipmentForm(summary.vehicle) : ""}
+        ${message ? `<div class="cmr-message">${this._escape(message)}</div>` : ""}
+        ${this._renderEquipmentItems(summary)}
+      </div>
+    `;
+  }
+
+  _equipmentTypeOptions(selected) {
+    const options = [
+      ["first_aid_kit", "Trusă medicală"],
+      ["fire_extinguisher", "Stingător"],
+      ["warning_triangles", "Triunghiuri reflectorizante"],
+      ["reflective_vest", "Vestă reflectorizantă"],
+      ["spare_wheel", "Roată de rezervă"],
+      ["puncture_kit", "Kit pană"],
+      ["compressor", "Compresor"],
+      ["jack", "Cric"],
+      ["wheel_wrench", "Cheie roți"],
+      ["jump_cables", "Cabluri pornire"],
+      ["snow_chains", "Lanțuri antiderapante"],
+      ["other", "Alt echipament"],
+    ];
+    const selectedValue = selected || "first_aid_kit";
+    return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  _renderEquipmentForm(vehicle) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key || vehicle.label || "";
+    const draft = this._equipmentDrafts[vehicleKey] || {};
+    return `
+      <form class="cmr-history-form" data-form="equipment-item" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
+        <div class="cmr-add-grid">
+          <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(draft.equipment_type)}</select></label>
+          <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(draft.name || "")}" placeholder="ex. Trusă auto omologată"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || "")}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(draft.expiry_date || "")}"></label>
+          <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
+          <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(draft.storage_location || "")}" placeholder="ex. portbagaj"></label>
+        </div>
+        <label class="cmr-check"><input type="checkbox" name="present" ${draft.present === false ? "" : "checked"}> Există în mașină</label>
+        <label class="cmr-field"><span>Observații</span><textarea name="notes" rows="2">${this._escape(draft.notes || "")}</textarea></label>
+        <div class="cmr-add-actions"><button class="cmr-action" type="submit" ${this._equipmentBusy === vehicleKey ? "disabled" : ""}>${this._equipmentBusy === vehicleKey ? "Se salvează..." : "Salvează echipamentul"}</button></div>
+      </form>
+    `;
+  }
+
+  _renderEquipmentItems(summary) {
+    const items = Array.isArray(summary.items) ? summary.items : [];
+    if (!items.length) return `<div class="cmr-history-empty">Nu există echipamente salvate pentru acest autovehicul.</div>`;
+    return `<div class="cmr-cost-list">${items.map((item) => this._renderEquipmentItem(summary, item)).join("")}</div>`;
+  }
+
+  _renderEquipmentItem(summary, item) {
+    const itemId = item.item_id || "";
+    const editOpen = itemId && this._equipmentEditOpen.has(itemId);
+    const title = [item.equipment_type_label || "Echipament", item.name || ""].filter(Boolean).join(" · ");
+    const expiry = item.expiry_date ? `expiră ${item.expiry_date}` : "fără expirare";
+    const status = item.status || "—";
+    const meta = [expiry, status, item.present ? "prezent" : "lipsă", item.storage_location || ""].filter(Boolean).join(" · ");
+    return `
+      <div class="cmr-cost-item cmr-cost-item-block">
+        <div class="cmr-cost-item-main">
+          <div class="cmr-cost-item-title">${this._escape(title || "Echipament")} ${status === "expirat" ? `<span>expirat</span>` : ""}</div>
+          <div class="cmr-row-muted">${this._escape(meta)}</div>
+          ${item.notes ? `<div class="cmr-history-notes">${this._escape(item.notes)}</div>` : ""}
+        </div>
+        <div class="cmr-cost-item-side">
+          <div class="cmr-cost-item-value">${this._formatMoney(item.cost)}</div>
+          <div class="cmr-inline-actions">
+            <button class="cmr-mini-action" type="button" data-action="toggle-edit-equipment-item" data-item-id="${this._escape(itemId)}">${editOpen ? "Renunță" : "Editează"}</button>
+            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-equipment-item" data-item-id="${this._escape(itemId)}" data-vehicle="${this._escape(summary.key)}" data-equipment-label="${this._escape(title)}">Șterge</button>
+          </div>
+        </div>
+        ${editOpen ? this._renderEquipmentEditForm(summary.vehicle, item) : ""}
+      </div>`;
+  }
+
+  _renderEquipmentEditForm(vehicle, item) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key || vehicle.label || "";
+    const itemId = item.item_id || "";
+    const draft = this._equipmentEditDrafts[itemId] || {};
+    const value = (key, fallback = "") => draft[key] ?? item[key] ?? fallback;
+    const present = Object.prototype.hasOwnProperty.call(draft, "present") ? draft.present : !!item.present;
+    return `
+      <form class="cmr-history-form cmr-inline-edit-form" data-form="equipment-item-edit" data-item-id="${this._escape(itemId)}" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
+        <div class="cmr-add-grid">
+          <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(value("equipment_type", "first_aid_kit"))}</select></label>
+          <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(value("name"))}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(value("expiry_date"))}"></label>
+          <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
+          <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(value("storage_location"))}"></label>
+        </div>
+        <label class="cmr-check"><input type="checkbox" name="present" ${present ? "checked" : ""}> Există în mașină</label>
+        <label class="cmr-field"><span>Observații</span><textarea name="notes" rows="2">${this._escape(value("notes"))}</textarea></label>
+        <div class="cmr-add-actions"><button class="cmr-action" type="submit" ${this._equipmentBusy === itemId ? "disabled" : ""}>${this._equipmentBusy === itemId ? "Se salvează..." : "Salvează modificările"}</button></div>
+      </form>
+    `;
+  }
+
+  _captureTireSetDraft(form) {
+    if (!form) return;
+    const vehicleKey = form.dataset.vehicle;
+    const data = new FormData(form);
+    this._tireSetDrafts[vehicleKey] = this._tirePayloadFromForm(data);
+  }
+
+  _captureTireSetEditDraft(form) {
+    if (!form) return;
+    const setId = form.dataset.setId;
+    if (!setId) return;
+    const data = new FormData(form);
+    this._tireSetEditDrafts[setId] = this._tirePayloadFromForm(data);
+  }
+
+  _tirePayloadFromForm(data) {
+    return {
+      tire_type: (data.get("tire_type") || "summer").toString(),
+      wheel_mount_type: (data.get("wheel_mount_type") || "tires_only").toString(),
+      brand_model: (data.get("brand_model") || "").toString(),
+      size: (data.get("size") || "").toString(),
+      dot: (data.get("dot") || "").toString(),
+      quantity: (data.get("quantity") || "4").toString(),
+      purchase_date: (data.get("purchase_date") || "").toString(),
+      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      last_mount_km: (data.get("last_mount_km") || "0").toString(),
+      total_km: (data.get("total_km") || "0").toString(),
+      cost: (data.get("cost") || "0").toString(),
+      installed: data.get("installed") === "on",
+      storage_location: (data.get("storage_location") || "").toString(),
+      pressure_front: (data.get("pressure_front") || "").toString(),
+      pressure_rear: (data.get("pressure_rear") || "").toString(),
+      notes: (data.get("notes") || "").toString(),
+    };
+  }
+
+  _validateTireSetPayload(payload) {
+    if (!payload) return "Setul de anvelope nu conține date valide.";
+    if (!payload.tire_type) return "Selectează tipul anvelopelor.";
+    if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) return "Numărul de bucăți trebuie să fie mai mare decât 0.";
+    if (!Number.isFinite(payload.cost) || payload.cost < 0) return "Costul nu poate fi negativ.";
+    if (!Number.isFinite(payload.last_mount_km) || payload.last_mount_km < 0) return "Km la montare nu poate fi negativ.";
+    if (!Number.isFinite(payload.total_km) || payload.total_km < 0) return "Km parcurși cu setul nu poate fi negativ.";
+    return "";
+  }
+
+  _setTireMessage(vehicleKey, message) {
+    if (!vehicleKey) return;
+    this._tireSetMessage[vehicleKey] = message;
+    this.render();
+  }
+
+  _buildTirePayload(form, setId = null) {
+    const data = new FormData(form);
+    const payload = {
+      vehicle_id: form.dataset.vehicleRef || form.dataset.vehicle,
+      tire_type: (data.get("tire_type") || "summer").toString(),
+      wheel_mount_type: (data.get("wheel_mount_type") || "tires_only").toString(),
+      brand_model: (data.get("brand_model") || "").toString().trim(),
+      size: (data.get("size") || "").toString().trim(),
+      dot: (data.get("dot") || "").toString().trim(),
+      quantity: Math.round(Number(data.get("quantity") || 4)),
+      purchase_date: (data.get("purchase_date") || "").toString(),
+      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      last_mount_km: Math.round(Number(data.get("last_mount_km") || 0)),
+      total_km: Math.round(Number(data.get("total_km") || 0)),
+      cost: Number(data.get("cost") || 0),
+      installed: data.get("installed") === "on",
+      storage_location: (data.get("storage_location") || "").toString().trim(),
+      pressure_front: (data.get("pressure_front") || "").toString().trim(),
+      pressure_rear: (data.get("pressure_rear") || "").toString().trim(),
+      notes: (data.get("notes") || "").toString().trim(),
+    };
+    if (setId) payload.set_id = setId;
+    return payload;
+  }
+
+  async _addTireSet(form) {
+    if (!this._hass || !form || this._tireSetBusy) return;
+    const vehicleKey = form.dataset.vehicle;
+    const payload = this._buildTirePayload(form);
+    const error = this._validateTireSetPayload(payload);
+    if (error) return this._setTireMessage(vehicleKey, error);
+    this._tireSetBusy = vehicleKey;
+    this._tireSetMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "add_tire_set", payload);
+      this._tireSetMessage[vehicleKey] = "Setul de anvelope a fost salvat. Integrarea se reîncarcă pentru actualizare.";
+      this._tireSetDrafts[vehicleKey] = {};
+      this._tireFormOpen.delete(vehicleKey);
+    } catch (error) {
+      this._tireSetMessage[vehicleKey] = error?.message || "Nu am putut salva setul de anvelope.";
+    } finally {
+      this._tireSetBusy = null;
+      this.render();
+    }
+  }
+
+  async _updateTireSet(form) {
+    if (!this._hass || !form || this._tireSetBusy) return;
+    const setId = form.dataset.setId;
+    const vehicleKey = form.dataset.vehicle;
+    const payload = this._buildTirePayload(form, setId);
+    const error = this._validateTireSetPayload(payload);
+    if (error) return this._setTireMessage(vehicleKey, error);
+    this._tireSetBusy = setId;
+    this._tireSetMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "update_tire_set", payload);
+      this._tireSetMessage[vehicleKey] = "Setul de anvelope a fost actualizat.";
+      delete this._tireSetEditDrafts[setId];
+      this._tireSetEditOpen.delete(setId);
+    } catch (error) {
+      this._tireSetMessage[vehicleKey] = error?.message || "Nu am putut actualiza setul de anvelope.";
+    } finally {
+      this._tireSetBusy = null;
+      this.render();
+    }
+  }
+
+  async _deleteTireSet(setId, vehicleKey, label = "") {
+    if (!this._hass || !setId || this._tireSetBusy) return;
+    const confirmed = window.confirm(`Ștergi definitiv acest set de anvelope?${label ? `\n\nSet: ${label}` : ""}\n\nOperațiunea nu poate fi anulată din card.`);
+    if (!confirmed) return;
+    this._tireSetBusy = setId;
+    this._tireSetMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "delete_tire_set", { set_id: setId });
+      this._tireSetMessage[vehicleKey] = "Setul de anvelope a fost șters.";
+      delete this._tireSetEditDrafts[setId];
+      this._tireSetEditOpen.delete(setId);
+    } catch (error) {
+      this._tireSetMessage[vehicleKey] = error?.message || "Nu am putut șterge setul de anvelope.";
+    } finally {
+      this._tireSetBusy = null;
+      this.render();
+    }
+  }
+
+  _captureEquipmentDraft(form) {
+    if (!form) return;
+    const vehicleKey = form.dataset.vehicle;
+    const data = new FormData(form);
+    this._equipmentDrafts[vehicleKey] = this._equipmentPayloadFromForm(data);
+  }
+
+  _captureEquipmentEditDraft(form) {
+    if (!form) return;
+    const itemId = form.dataset.itemId;
+    if (!itemId) return;
+    const data = new FormData(form);
+    this._equipmentEditDrafts[itemId] = this._equipmentPayloadFromForm(data);
+  }
+
+  _equipmentPayloadFromForm(data) {
+    return {
+      equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
+      name: (data.get("name") || "").toString(),
+      purchase_date: (data.get("purchase_date") || "").toString(),
+      expiry_date: (data.get("expiry_date") || "").toString(),
+      cost: (data.get("cost") || "0").toString(),
+      present: data.get("present") === "on",
+      storage_location: (data.get("storage_location") || "").toString(),
+      notes: (data.get("notes") || "").toString(),
+    };
+  }
+
+  _validateEquipmentPayload(payload) {
+    if (!payload) return "Echipamentul nu conține date valide.";
+    if (!payload.equipment_type) return "Selectează tipul echipamentului.";
+    if (!Number.isFinite(payload.cost) || payload.cost < 0) return "Costul nu poate fi negativ.";
+    return "";
+  }
+
+  _setEquipmentMessage(vehicleKey, message) {
+    if (!vehicleKey) return;
+    this._equipmentMessage[vehicleKey] = message;
+    this.render();
+  }
+
+  _buildEquipmentPayload(form, itemId = null) {
+    const data = new FormData(form);
+    const payload = {
+      vehicle_id: form.dataset.vehicleRef || form.dataset.vehicle,
+      equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
+      name: (data.get("name") || "").toString().trim(),
+      purchase_date: (data.get("purchase_date") || "").toString(),
+      expiry_date: (data.get("expiry_date") || "").toString(),
+      cost: Number(data.get("cost") || 0),
+      present: data.get("present") === "on",
+      storage_location: (data.get("storage_location") || "").toString().trim(),
+      notes: (data.get("notes") || "").toString().trim(),
+    };
+    if (itemId) payload.item_id = itemId;
+    return payload;
+  }
+
+  async _addEquipmentItem(form) {
+    if (!this._hass || !form || this._equipmentBusy) return;
+    const vehicleKey = form.dataset.vehicle;
+    const payload = this._buildEquipmentPayload(form);
+    const error = this._validateEquipmentPayload(payload);
+    if (error) return this._setEquipmentMessage(vehicleKey, error);
+    this._equipmentBusy = vehicleKey;
+    this._equipmentMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "add_equipment_item", payload);
+      this._equipmentMessage[vehicleKey] = "Echipamentul a fost salvat. Integrarea se reîncarcă pentru actualizare.";
+      this._equipmentDrafts[vehicleKey] = {};
+      this._equipmentFormOpen.delete(vehicleKey);
+    } catch (error) {
+      this._equipmentMessage[vehicleKey] = error?.message || "Nu am putut salva echipamentul.";
+    } finally {
+      this._equipmentBusy = null;
+      this.render();
+    }
+  }
+
+  async _updateEquipmentItem(form) {
+    if (!this._hass || !form || this._equipmentBusy) return;
+    const itemId = form.dataset.itemId;
+    const vehicleKey = form.dataset.vehicle;
+    const payload = this._buildEquipmentPayload(form, itemId);
+    const error = this._validateEquipmentPayload(payload);
+    if (error) return this._setEquipmentMessage(vehicleKey, error);
+    this._equipmentBusy = itemId;
+    this._equipmentMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "update_equipment_item", payload);
+      this._equipmentMessage[vehicleKey] = "Echipamentul a fost actualizat.";
+      delete this._equipmentEditDrafts[itemId];
+      this._equipmentEditOpen.delete(itemId);
+    } catch (error) {
+      this._equipmentMessage[vehicleKey] = error?.message || "Nu am putut actualiza echipamentul.";
+    } finally {
+      this._equipmentBusy = null;
+      this.render();
+    }
+  }
+
+  async _deleteEquipmentItem(itemId, vehicleKey, label = "") {
+    if (!this._hass || !itemId || this._equipmentBusy) return;
+    const confirmed = window.confirm(`Ștergi definitiv acest echipament?${label ? `\n\nEchipament: ${label}` : ""}\n\nOperațiunea nu poate fi anulată din card.`);
+    if (!confirmed) return;
+    this._equipmentBusy = itemId;
+    this._equipmentMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "delete_equipment_item", { item_id: itemId });
+      this._equipmentMessage[vehicleKey] = "Echipamentul a fost șters.";
+      delete this._equipmentEditDrafts[itemId];
+      this._equipmentEditOpen.delete(itemId);
+    } catch (error) {
+      this._equipmentMessage[vehicleKey] = error?.message || "Nu am putut șterge echipamentul.";
+    } finally {
+      this._equipmentBusy = null;
+      this.render();
+    }
+  }
+
   _captureFuelReceiptDraft(form) {
     if (!form) return;
     const vehicleKey = form.dataset.vehicle;
@@ -1716,6 +2636,72 @@ class CarManagerRomaniaCard extends HTMLElement {
     };
   }
 
+  _validateFuelReceiptPayload(payload) {
+    if (!payload) return "Bonul nu conține date valide.";
+    if (!payload.date || !/^\d{4}-\d{2}-\d{2}$/.test(String(payload.date))) return "Completează data alimentării.";
+    if (!payload.fuel_type) return "Selectează tipul de combustibil.";
+    if (!Number.isFinite(payload.km) || payload.km <= 0) return "Kilometrajul din bord trebuie să fie mai mare decât 0.";
+    if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) return "Cantitatea alimentată trebuie să fie mai mare decât 0.";
+    if (!Number.isFinite(payload.total_cost) || payload.total_cost <= 0) return "Valoarea bonului trebuie să fie mai mare decât 0.";
+    return "";
+  }
+
+  _setFuelMessage(vehicleKey, message) {
+    if (!vehicleKey) return;
+    this._fuelReceiptMessage[vehicleKey] = message;
+    this.render();
+  }
+
+  _exportFuelHistory() {
+    const summaries = this._buildVehicles().map((vehicle) => this._fuelSummaryForVehicle(vehicle));
+    const filtered = this._fuelVehicleFilter === "all"
+      ? summaries
+      : summaries.filter((summary) => summary.key === this._fuelVehicleFilter);
+    const payload = {
+      type: "car_manager_romania_fuel_history",
+      version: "1.0.16",
+      generated_at: new Date().toISOString(),
+      filter: this._fuelVehicleFilter,
+      vehicles: filtered.map((summary) => ({
+        vehicle_id: summary.key,
+        label: summary.label,
+        plate: summary.plate,
+        year_cost: summary.yearCost,
+        month_cost: summary.monthCost,
+        receipts: Array.isArray(summary.receipts) ? summary.receipts : [],
+        consumption_intervals: Array.isArray(summary.intervals) ? summary.intervals : [],
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const suffix = this._fuelVehicleFilter === "all" ? "toate" : this._fuelVehicleFilter;
+    a.href = url;
+    a.download = `car_manager_romania_combustibil_${suffix}_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  _confirmFuelKmIfNeeded(vehicleKey, km, currentReceiptId = null) {
+    const currentKm = Number(km || 0);
+    if (!vehicleKey || !Number.isFinite(currentKm) || currentKm <= 0) return true;
+    const vehicle = this._buildVehicles().find((item) => (item.vehicle_id || item.key || item.label) === vehicleKey);
+    if (!vehicle) return true;
+    const receipts = Array.isArray(this._vehicleStatusAttributes(vehicle).fuel_receipts)
+      ? this._vehicleStatusAttributes(vehicle).fuel_receipts
+      : [];
+    const comparable = receipts
+      .filter((receipt) => receipt && typeof receipt === "object" && (!currentReceiptId || receipt.receipt_id !== currentReceiptId))
+      .map((receipt) => this._toNumber(receipt.km))
+      .filter((value) => value > 0);
+    if (!comparable.length) return true;
+    const maxKm = Math.max(...comparable);
+    if (currentKm >= maxKm) return true;
+    return window.confirm(`Kilometrajul introdus (${currentKm} km) este mai mic decât cel mai mare kilometraj salvat pentru această mașină (${maxKm} km). Salvez totuși bonul?`);
+  }
+
   async _addFuelReceipt(form) {
     if (!this._hass || !form) return;
     const vehicleKey = form.dataset.vehicle;
@@ -1732,6 +2718,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       station: (data.get("station") || "").toString().trim(),
       notes: (data.get("notes") || "").toString().trim(),
     };
+    const validationError = this._validateFuelReceiptPayload(payload);
+    if (validationError) {
+      this._setFuelMessage(vehicleKey, validationError);
+      return;
+    }
+    if (!this._confirmFuelKmIfNeeded(vehicleKey, payload.km)) return;
     this._fuelReceiptBusy = vehicleKey;
     this._fuelReceiptMessage[vehicleKey] = "";
     this.render();
@@ -1766,6 +2758,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       station: (data.get("station") || "").toString().trim(),
       notes: (data.get("notes") || "").toString().trim(),
     };
+    const validationError = this._validateFuelReceiptPayload(payload);
+    if (validationError) {
+      this._setFuelMessage(vehicleKey, validationError);
+      return;
+    }
+    if (!this._confirmFuelKmIfNeeded(vehicleKey, payload.km, receiptId)) return;
     this._fuelReceiptBusy = receiptId;
     this._fuelReceiptMessage[vehicleKey] = "";
     this.render();
@@ -1782,9 +2780,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     }
   }
 
-  async _deleteFuelReceipt(receiptId, vehicleKey) {
+  async _deleteFuelReceipt(receiptId, vehicleKey, receiptLabel = "") {
     if (!this._hass || !receiptId || this._fuelReceiptBusy) return;
-    const confirmed = window.confirm("Ștergi acest bon de combustibil? Consumul și costurile se vor recalcula după ștergere.");
+    const detail = receiptLabel ? `\n\nBon: ${receiptLabel}` : "";
+    const confirmed = window.confirm(`Ștergi definitiv acest bon de combustibil?${detail}\n\nDupă ștergere se recalculează costurile, prețul mediu și consumul. Operațiunea nu poate fi anulată din card.`);
     if (!confirmed) return;
     this._fuelReceiptBusy = receiptId;
     this._fuelReceiptMessage[vehicleKey] = "";
@@ -1958,9 +2957,10 @@ class CarManagerRomaniaCard extends HTMLElement {
   async _deleteServiceRecord(recordId, vehicleKey, options = {}) {
     if (!this._hass || !recordId || this._serviceRecordBusy) return;
 
+    const title = options.title ? `\n\nIntervenție: ${options.title}` : "";
     const warning = options.updatesMaintenance && !options.restored
-      ? "Această intervenție pare aplicată în mentenanță. Ștergerea elimină doar rândul din istoric, nu revine la valorile anterioare. Pentru revenire, folosește mai întâi Restore, apoi Șterge. Continui?"
-      : "Ștergi această intervenție din istoric? Valorile de mentenanță ale autovehiculului nu se modifică.";
+      ? `Ștergi definitiv această intervenție din istoric?${title}\n\nAtenție: intervenția pare aplicată în mentenanță. Ștergerea elimină doar rândul din istoric, nu revine la valorile anterioare. Pentru revenire, folosește mai întâi Restore, apoi Șterge.`
+      : `Ștergi definitiv această intervenție din istoric?${title}\n\nValorile de mentenanță ale autovehiculului nu se modifică. Operațiunea nu poate fi anulată din card.`;
     const confirmed = window.confirm(warning);
     if (!confirmed) return;
 
@@ -2436,9 +3436,17 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-card { padding: 16px; container-type: inline-size; }
       .cmr-header, .cmr-vehicle-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
       .cmr-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-      .cmr-tabs { display: flex; gap: 8px; margin-top: 14px; padding: 4px; border-radius: 999px; background: color-mix(in srgb, var(--card-background-color) 88%, var(--primary-color) 12%); border: 1px solid var(--divider-color); }
-      .cmr-tab { flex: 1 1 0; border: 0; border-radius: 999px; padding: 8px 10px; color: var(--secondary-text-color); background: transparent; cursor: pointer; font-weight: 900; }
+      .cmr-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 14px; padding: 5px 5px 25px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 88%, var(--primary-color) 12%); border: 1px solid var(--divider-color); overflow: visible; }
+      .cmr-tab { position: relative; min-width: 0; min-height: 34px; border: 0; border-radius: 999px; padding: 7px 6px; color: var(--secondary-text-color); background: transparent; cursor: pointer; font-weight: 900; font-size: 11px; line-height: 1.1; white-space: nowrap; overflow: visible; }
+      .cmr-tab ha-icon { width: 18px; height: 18px; display: block; margin: 0 auto; }
+      .cmr-tab-label { position: absolute; left: 50%; top: calc(100% + 5px); transform: translateX(-50%) translateY(-2px); max-width: 96px; padding: 3px 8px; border-radius: 999px; color: var(--primary-text-color); background: color-mix(in srgb, var(--card-background-color) 72%, var(--primary-color) 28%); box-shadow: 0 2px 8px rgba(0,0,0,.18); opacity: 0; pointer-events: none; transition: opacity .14s ease, transform .14s ease; overflow: hidden; text-overflow: ellipsis; }
+      .cmr-tab:hover .cmr-tab-label, .cmr-tab:focus-visible .cmr-tab-label, .cmr-tab.is-active .cmr-tab-label { opacity: 1; transform: translateX(-50%) translateY(0); }
       .cmr-tab.is-active { color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 22%, transparent); }
+
+      @container (min-width: 430px) {
+        .cmr-tabs { padding-bottom: 26px; }
+        .cmr-tab ha-icon { width: 19px; height: 19px; }
+      }
       .cmr-title { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
       .cmr-subtitle, .cmr-plate, .cmr-row-muted, .cmr-tile-sub { color: var(--secondary-text-color); font-size: 12px; }
       .cmr-mode, .cmr-action { border: 0; border-radius: 999px; padding: 8px 12px; color: var(--primary-text-color); background: color-mix(in srgb, var(--primary-color) 14%, transparent); cursor: pointer; font-weight: 700; }
@@ -2520,6 +3528,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-row.is-good .cmr-row-value, .cmr-row.is-warn .cmr-row-value, .cmr-row.is-bad .cmr-row-value { color: var(--cmr-accent); }
       .cmr-costs-panel { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
       .cmr-cost-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+      .cmr-fuel-head { align-items: flex-end; }
+      .cmr-fuel-head-actions { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .cmr-info-note { margin: 8px 0; padding: 9px 10px; border: 1px solid rgba(68, 180, 213, .32); border-radius: 12px; background: rgba(68, 180, 213, .10); color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; }
+      .cmr-fuel-filter { display: flex; flex-direction: column; gap: 4px; min-width: 170px; font-size: 11px; color: var(--secondary-text-color); font-weight: 900; }
+      .cmr-fuel-filter select { width: 100%; border: 1px solid var(--divider-color); border-radius: 10px; padding: 7px 9px; background: var(--card-background-color); color: var(--primary-text-color); font-weight: 800; }
+      .cmr-recent-title { margin: 10px 0 6px; font-size: 12px; font-weight: 900; color: var(--secondary-text-color); }
       .cmr-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; font-weight: 800; }
       .cmr-cost-card { padding: 12px; border-radius: 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
       .cmr-cost-title { color: var(--secondary-text-color); font-size: 12px; font-weight: 900; }
@@ -2563,9 +3577,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
       .cmr-empty { margin-top: 14px; color: var(--secondary-text-color); padding: 14px; border: 1px dashed var(--divider-color); border-radius: 14px; }
       @container (max-width: 420px) {
-        .cmr-header, .cmr-vehicle-head { align-items: flex-start; }
+        .cmr-header, .cmr-vehicle-head, .cmr-fuel-head { align-items: flex-start; }
         .cmr-header-actions { width: 100%; justify-content: flex-start; }
         .cmr-add-grid, .cmr-cost-summary-grid { grid-template-columns: 1fr; }
+        .cmr-fuel-head { flex-direction: column; }
+        .cmr-fuel-head-actions { width: 100%; justify-content: flex-start; }
+        .cmr-fuel-filter { width: 100%; }
         .cmr-field { grid-template-columns: 1fr; }
         .cmr-service-grid { grid-template-columns: 1fr; }
         .cmr-history-row { flex-direction: column; }

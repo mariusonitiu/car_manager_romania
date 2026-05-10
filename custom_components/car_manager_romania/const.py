@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.12"
+VERSION = "1.0.20"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -32,6 +32,31 @@ SERVICE_CLEANUP_ORPHAN_ENTITIES = "cleanup_orphan_entities"
 SERVICE_ADD_FUEL_RECEIPT = "add_fuel_receipt"
 SERVICE_UPDATE_FUEL_RECEIPT = "update_fuel_receipt"
 SERVICE_DELETE_FUEL_RECEIPT = "delete_fuel_receipt"
+
+SERVICE_ADD_TIRE_SET = "add_tire_set"
+SERVICE_UPDATE_TIRE_SET = "update_tire_set"
+SERVICE_DELETE_TIRE_SET = "delete_tire_set"
+SERVICE_ADD_EQUIPMENT_ITEM = "add_equipment_item"
+SERVICE_UPDATE_EQUIPMENT_ITEM = "update_equipment_item"
+SERVICE_DELETE_EQUIPMENT_ITEM = "delete_equipment_item"
+
+TIRE_TYPE_SUMMER = "summer"
+TIRE_TYPE_WINTER = "winter"
+TIRE_TYPE_ALL_SEASON = "all_season"
+
+TIRE_TYPES: dict[str, str] = {
+    TIRE_TYPE_SUMMER: "Vară",
+    TIRE_TYPE_WINTER: "Iarnă",
+    TIRE_TYPE_ALL_SEASON: "All season",
+}
+
+TIRE_MOUNT_TYPE_TIRES_ONLY = "tires_only"
+TIRE_MOUNT_TYPE_ON_RIMS = "on_rims"
+
+TIRE_MOUNT_TYPES: dict[str, str] = {
+    TIRE_MOUNT_TYPE_TIRES_ONLY: "Doar cauciucuri",
+    TIRE_MOUNT_TYPE_ON_RIMS: "Pe jante",
+}
 
 CONF_VEHICLE_ID = "vehicle_id"
 CONF_REMOVED = "removed"
@@ -219,6 +244,40 @@ STORAGE_VERSION_SERVICE_HISTORY = 1
 
 STORAGE_KEY_FUEL_RECEIPTS = f"{DOMAIN}_fuel_receipts"
 STORAGE_VERSION_FUEL_RECEIPTS = 1
+
+STORAGE_KEY_TIRE_SETS = f"{DOMAIN}_tire_sets"
+STORAGE_VERSION_TIRE_SETS = 1
+
+STORAGE_KEY_EQUIPMENT_ITEMS = f"{DOMAIN}_equipment_items"
+STORAGE_VERSION_EQUIPMENT_ITEMS = 1
+
+EQUIPMENT_TYPE_FIRST_AID_KIT = "first_aid_kit"
+EQUIPMENT_TYPE_FIRE_EXTINGUISHER = "fire_extinguisher"
+EQUIPMENT_TYPE_WARNING_TRIANGLES = "warning_triangles"
+EQUIPMENT_TYPE_REFLECTIVE_VEST = "reflective_vest"
+EQUIPMENT_TYPE_SPARE_WHEEL = "spare_wheel"
+EQUIPMENT_TYPE_PUNCTURE_KIT = "puncture_kit"
+EQUIPMENT_TYPE_COMPRESSOR = "compressor"
+EQUIPMENT_TYPE_JACK = "jack"
+EQUIPMENT_TYPE_WHEEL_WRENCH = "wheel_wrench"
+EQUIPMENT_TYPE_JUMP_CABLES = "jump_cables"
+EQUIPMENT_TYPE_SNOW_CHAINS = "snow_chains"
+EQUIPMENT_TYPE_OTHER = "other"
+
+EQUIPMENT_TYPES: dict[str, str] = {
+    EQUIPMENT_TYPE_FIRST_AID_KIT: "Trusă medicală",
+    EQUIPMENT_TYPE_FIRE_EXTINGUISHER: "Stingător",
+    EQUIPMENT_TYPE_WARNING_TRIANGLES: "Triunghiuri reflectorizante",
+    EQUIPMENT_TYPE_REFLECTIVE_VEST: "Vestă reflectorizantă",
+    EQUIPMENT_TYPE_SPARE_WHEEL: "Roată de rezervă",
+    EQUIPMENT_TYPE_PUNCTURE_KIT: "Kit pană",
+    EQUIPMENT_TYPE_COMPRESSOR: "Compresor",
+    EQUIPMENT_TYPE_JACK: "Cric",
+    EQUIPMENT_TYPE_WHEEL_WRENCH: "Cheie roți",
+    EQUIPMENT_TYPE_JUMP_CABLES: "Cabluri pornire",
+    EQUIPMENT_TYPE_SNOW_CHAINS: "Lanțuri antiderapante",
+    EQUIPMENT_TYPE_OTHER: "Alt echipament",
+}
 
 # Modul intern e-rovinieta.ro.
 CONF_ROVINIETA_USERNAME = "rovinieta_username"
