@@ -16,6 +16,7 @@ from .const import (
     LEGAL_STATUS_SOON,
     LEGAL_STATUS_UNKNOWN,
     LEGAL_STATUS_VALID,
+    LEGAL_TYPE_CASCO,
     LEGAL_TYPES,
     MAINTENANCE_STATUS_OK,
     MAINTENANCE_STATUS_OVERDUE,
@@ -23,7 +24,8 @@ from .const import (
     MAINTENANCE_STATUS_UNKNOWN,
     MAINTENANCE_TYPES,
 )
-from .legal import legal_days_remaining, legal_status
+from .costs import expense_total, upcoming_expense_items
+from .legal import legal_days_remaining, legal_status, is_legal_ignored
 from .maintenance import maintenance_remaining_values, maintenance_status
 from .rovinieta.models import VehicleData
 from .storage import CarManagerNotificationStore
@@ -74,6 +76,18 @@ def _overall_notification_id(vehicle_id: str) -> str:
     """Return persistent notification id for aggregated vehicle notification."""
 
     return _notification_id(vehicle_id, "overall", "summary")
+
+
+def _expenses_notification_key(vehicle_id: str) -> str:
+    """Return storage key for upcoming expense notification."""
+
+    return _notification_key(vehicle_id, "expenses", "upcoming_90_days")
+
+
+def _expenses_notification_id(vehicle_id: str) -> str:
+    """Return persistent notification id for upcoming expense notification."""
+
+    return _notification_id(vehicle_id, "expenses", "upcoming_90_days")
 
 
 def _format_days(days_remaining: int | None) -> str:
@@ -235,6 +249,9 @@ def _build_vehicle_issue_summary(
             warning_items.append(item)
 
     for legal_type, legal_label in LEGAL_TYPES.items():
+        if legal_type == LEGAL_TYPE_CASCO and is_legal_ignored(vehicle, legal_type):
+            continue
+
         current_legal_status = legal_status(vehicle, legal_type)
         if current_legal_status in (LEGAL_STATUS_VALID, LEGAL_STATUS_UNKNOWN):
             continue
@@ -317,6 +334,92 @@ def _build_fingerprint(
             )
 
     return "\n".join(parts)
+
+
+
+
+def _format_cost(value: Any) -> str:
+    """Return formatted RON cost."""
+
+    try:
+        cost = float(value or 0)
+    except (TypeError, ValueError):
+        cost = 0.0
+
+    if cost == int(cost):
+        return f"{int(cost)} lei"
+
+    return f"{cost:.2f} lei"
+
+
+def _build_expenses_fingerprint(items: list[dict[str, Any]]) -> str:
+    """Build stable fingerprint for upcoming expenses."""
+
+    parts: list[str] = []
+    for item in items:
+        parts.append(
+            "|".join(
+                [
+                    str(item.get("category", "")),
+                    str(item.get("key", "")),
+                    str(item.get("due_date", "")),
+                    str(item.get("days_remaining", "")),
+                    str(item.get("cost", "")),
+                ]
+            )
+        )
+    return "\n".join(parts)
+
+
+def _append_expense_lines(lines: list[str], items: list[dict[str, Any]]) -> None:
+    """Append upcoming expense lines."""
+
+    for item in items[:MAX_ITEMS_IN_NOTIFICATION]:
+        days_remaining = item.get("days_remaining")
+        if days_remaining is None:
+            when = "termen necunoscut"
+        elif int(days_remaining) == 0:
+            when = "acum / expirat"
+        elif int(days_remaining) == 1:
+            when = "în 1 zi"
+        else:
+            when = f"în {int(days_remaining)} zile"
+
+        due_date = item.get("due_date")
+        due_text = f", scadență {due_date}" if due_date else ""
+        lines.append(f"- {item.get('label', 'Cheltuială')}: {_format_cost(item.get('cost'))} ({when}{due_text})")
+
+    remaining = len(items) - MAX_ITEMS_IN_NOTIFICATION
+    if remaining > 0:
+        lines.append(f"- încă {remaining} cheltuială/cheltuieli în senzorul dedicat")
+
+
+def _build_expenses_message(
+    vehicle: dict[str, Any],
+    urgent_items: list[dict[str, Any]],
+    planning_items: list[dict[str, Any]],
+) -> str:
+    """Build upcoming expenses notification body."""
+
+    all_items = urgent_items + planning_items
+    lines: list[str] = [
+        f"Cheltuieli estimate pentru {_vehicle_label(vehicle)} în următoarele 90 de zile:",
+        f"Total estimat: {_format_cost(expense_total(all_items))}.",
+    ]
+
+    if urgent_items:
+        lines.append("")
+        lines.append("Următoarele 30 de zile:")
+        _append_expense_lines(lines, urgent_items)
+
+    if planning_items:
+        lines.append("")
+        lines.append("Între 31 și 90 de zile:")
+        _append_expense_lines(lines, planning_items)
+
+    lines.append("")
+    lines.append("Sunt incluse doar elementele pentru care ai introdus un cost estimat mai mare decât 0.")
+    return "\n".join(lines)
 
 
 def _build_overall_title(
@@ -420,15 +523,39 @@ async def async_check_maintenance_notifications(
 
         if not critical_items and not warning_items:
             await _clear_notification(hass, store, key, notification_id)
+        else:
+            fingerprint = _build_fingerprint(critical_items, warning_items)
+            await _handle_notification(
+                hass,
+                store,
+                key,
+                notification_id,
+                fingerprint,
+                _build_overall_title(vehicle, critical_items),
+                _build_overall_message(vehicle, critical_items, warning_items),
+            )
+
+        expenses = upcoming_expense_items(entry, vehicle, 90, only_with_cost=True)
+        expenses_key = _expenses_notification_key(vehicle_id)
+        expenses_notification_id = _expenses_notification_id(vehicle_id)
+        if not expenses:
+            await _clear_notification(hass, store, expenses_key, expenses_notification_id)
             continue
 
-        fingerprint = _build_fingerprint(critical_items, warning_items)
+        urgent_expenses = [
+            item for item in expenses
+            if item.get("days_remaining") is not None and int(item.get("days_remaining") or 0) <= 30
+        ]
+        planning_expenses = [
+            item for item in expenses
+            if item.get("days_remaining") is None or int(item.get("days_remaining") or 0) > 30
+        ]
         await _handle_notification(
             hass,
             store,
-            key,
-            notification_id,
-            fingerprint,
-            _build_overall_title(vehicle, critical_items),
-            _build_overall_message(vehicle, critical_items, warning_items),
+            expenses_key,
+            expenses_notification_id,
+            _build_expenses_fingerprint(expenses),
+            f"Car Manager România: cheltuieli estimate pentru {_vehicle_label(vehicle)}",
+            _build_expenses_message(vehicle, urgent_expenses, planning_expenses),
         )

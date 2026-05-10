@@ -8,6 +8,7 @@ from typing import Any
 from .const import (
     CONF_LEGAL_TERMS,
     LEGAL_END_DATE,
+    LEGAL_OPTION_IGNORED,
     LEGAL_SOON_DAYS_THRESHOLD,
     LEGAL_START_DATE,
     LEGAL_STATUS_EXPIRED,
@@ -53,6 +54,24 @@ def set_legal_value(
 
     vehicle[CONF_LEGAL_TERMS][legal_type][field] = value
 
+
+
+def is_legal_ignored(vehicle: dict[str, Any], legal_type: str) -> bool:
+    """Return whether an optional legal term is intentionally ignored."""
+
+    return bool(get_legal_value(vehicle, legal_type, LEGAL_OPTION_IGNORED))
+
+
+def set_legal_ignored(vehicle: dict[str, Any], legal_type: str, ignored: bool) -> None:
+    """Persist whether an optional legal term should be ignored."""
+
+    set_legal_value(vehicle, legal_type, LEGAL_OPTION_IGNORED, bool(ignored))
+
+
+def legal_is_configured(vehicle: dict[str, Any], legal_type: str) -> bool:
+    """Return True when a legal term has at least an expiration date."""
+
+    return parse_date(get_legal_value(vehicle, legal_type, LEGAL_END_DATE)) is not None
 
 def legal_days_remaining(vehicle: dict[str, Any], legal_type: str) -> int | None:
     """Return remaining days until legal term expiration."""

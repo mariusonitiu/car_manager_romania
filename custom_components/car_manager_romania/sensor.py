@@ -18,12 +18,14 @@ from .const import (
     CONF_KM,
     CONF_LICENSE_PLATE,
     LEGAL_END_DATE,
+    LEGAL_OPTION_IGNORED,
     LEGAL_START_DATE,
     LEGAL_TYPES,
     LEGAL_STATUS_EXPIRED,
     LEGAL_STATUS_SOON,
     LEGAL_STATUS_UNKNOWN,
     LEGAL_STATUS_VALID,
+    LEGAL_TYPE_CASCO,
     CONF_NAME,
     CONF_REMOVED,
     CONF_VEHICLE_ID,
@@ -42,7 +44,7 @@ from .const import (
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
-from .legal import legal_days_remaining, legal_status, get_legal_value
+from .legal import legal_days_remaining, legal_status, get_legal_value, is_legal_ignored
 from .maintenance import (
     calculate_days_remaining,
     calculate_km_remaining,
@@ -51,6 +53,7 @@ from .maintenance import (
     maintenance_remaining_values,
     maintenance_status,
 )
+from .costs import annual_history_total, expense_total, upcoming_expense_items
 from .rovinieta.sensor import async_setup_rovinieta_sensors
 
 
@@ -69,6 +72,9 @@ async def async_setup_entry(
     for vehicle in entry.runtime_data.vehicles:
         entities.append(CarVehicleKmSensor(entry, vehicle))
         entities.append(CarVehicleStatusSensor(entry, vehicle))
+        entities.append(CarVehicleUpcomingExpensesSensor(entry, vehicle, 30))
+        entities.append(CarVehicleUpcomingExpensesSensor(entry, vehicle, 90))
+        entities.append(CarVehicleAnnualCostsSensor(entry, vehicle))
 
         for maintenance_type, label in MAINTENANCE_TYPES.items():
             if maintenance_type not in MAINTENANCE_TIME_ONLY_TYPES:
@@ -338,6 +344,95 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         return attributes
 
 
+class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
+    """Upcoming expenses total sensor."""
+
+    _attr_icon = "mdi:cash-clock"
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+        horizon_days: int,
+    ) -> None:
+        """Initialize upcoming expenses sensor."""
+
+        super().__init__(entry, vehicle)
+        self._horizon_days = horizon_days
+        self._attr_name = f"Cheltuieli următoarele {horizon_days} zile"
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{self._vehicle_id}_upcoming_expenses_{horizon_days}_days"
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return total upcoming expenses."""
+
+        return expense_total(
+            upcoming_expense_items(
+                self._entry,
+                self._vehicle,
+                self._horizon_days,
+                only_with_cost=True,
+            )
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return upcoming expense details."""
+
+        items = upcoming_expense_items(
+            self._entry,
+            self._vehicle,
+            self._horizon_days,
+            only_with_cost=False,
+        )
+        items_with_cost = [item for item in items if float(item.get("cost", 0) or 0) > 0]
+        return {
+            "horizon_days": self._horizon_days,
+            "currency": "RON",
+            "total_cost": expense_total(items_with_cost),
+            "items": items,
+            "items_with_cost": items_with_cost,
+        }
+
+
+class CarVehicleAnnualCostsSensor(CarVehicleBaseSensor):
+    """Current-year historic costs sensor."""
+
+    _attr_name = "Costuri anul curent"
+    _attr_icon = "mdi:cash-multiple"
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(
+        self,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize annual costs sensor."""
+
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_annual_costs_current_year"
+
+    @property
+    def native_value(self) -> float:
+        """Return current-year historic costs."""
+
+        return annual_history_total(self._entry, self._vehicle)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return annual cost metadata."""
+
+        from datetime import date as dt_date
+
+        return {
+            "year": dt_date.today().year,
+            "currency": "RON",
+        }
+
+
 def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
     """Build an aggregated health summary for one vehicle."""
 
@@ -368,6 +463,9 @@ def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
             unknown_items.append(item)
 
     for legal_type, label in LEGAL_TYPES.items():
+        if legal_type == LEGAL_TYPE_CASCO and is_legal_ignored(vehicle, legal_type):
+            continue
+
         status = legal_status(vehicle, legal_type)
         days_remaining = legal_days_remaining(vehicle, legal_type)
         item = _build_overall_item(
@@ -379,7 +477,11 @@ def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
             km_remaining=None,
         )
 
-        if status == LEGAL_STATUS_EXPIRED:
+        if legal_type == LEGAL_TYPE_CASCO and status == LEGAL_STATUS_UNKNOWN:
+            item["summary"] = "neconfigurat"
+            item["can_ignore"] = True
+            critical_items.append(item)
+        elif status == LEGAL_STATUS_EXPIRED:
             critical_items.append(item)
         elif status == LEGAL_STATUS_SOON:
             warning_items.append(item)
@@ -450,6 +552,7 @@ def _service_history_type_label(record_type: str) -> str:
 
     return {
         "rca": "RCA",
+        "casco": "CASCO",
         "itp": "ITP",
         "rovinieta": "Rovinietă",
         "custom": "Altă intervenție",
@@ -703,6 +806,16 @@ class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
                 self._legal_type,
                 LEGAL_END_DATE,
             ),
+            "ignored": bool(get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_OPTION_IGNORED,
+            )),
+            "legal_ignored": bool(get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_OPTION_IGNORED,
+            )),
         }
 
 
@@ -750,4 +863,14 @@ class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
                 LEGAL_END_DATE,
             ),
             "zile_ramase": legal_days_remaining(self._vehicle, self._legal_type),
+            "ignored": bool(get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_OPTION_IGNORED,
+            )),
+            "legal_ignored": bool(get_legal_value(
+                self._vehicle,
+                self._legal_type,
+                LEGAL_OPTION_IGNORED,
+            )),
         }

@@ -100,6 +100,7 @@ add_service_record:
             - brake_fluid
             - coolant
             - rca
+            - casco
             - itp
             - rovinieta
             - custom
@@ -357,5 +358,57 @@ import_data:
       description: Când este activ, serviciul doar arată ce ar importa, fără să modifice datele.
       required: false
       default: true
+      selector:
+        boolean:
+
+set_legal_option:
+  name: Setează opțiune termen legal
+  description: Activează sau dezactivează afișarea unui termen legal opțional pentru un autovehicul. Momentan este folosit pentru CASCO.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      description: ID-ul intern stabil, VIN-ul, numărul de înmatriculare sau numele autovehiculului.
+      required: true
+      example: sb01abc
+      selector:
+        text:
+    legal_type:
+      name: Tip termen legal
+      description: Tipul termenului legal opțional.
+      required: true
+      default: casco
+      selector:
+        select:
+          options:
+            - casco
+    ignored:
+      name: Ascuns / ignorat
+      description: Dacă este true, CASCO nu mai apare în card, în stare generală, notificări sau cheltuieli viitoare.
+      required: true
+      default: true
+      selector:
+        boolean:
+
+cleanup_orphan_entities:
+  name: Curăță entități orfane
+  description: Elimină din registry entitățile Car Manager România care aparțin acestei instanțe, dar nu mai sunt generate de integrare. Cu dry_run activ, doar afișează ce ar curăța.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Opțional. ID-ul config entry-ului Car Manager România. Se poate omite dacă există o singură instanță.
+      required: false
+      selector:
+        text:
+    dry_run:
+      name: Simulare fără ștergere
+      description: Dacă este activ, serviciul doar raportează entitățile orfane găsite, fără să le elimine.
+      required: false
+      default: false
       selector:
         boolean:

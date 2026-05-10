@@ -15,6 +15,8 @@ from .device import build_vehicle_device_info
 from . import CarManagerConfigEntry
 from .const import (
     CONF_KM,
+    COST_AMOUNT,
+    LEGAL_COST_TYPES,
     MAINTENANCE_INTERVAL_DAYS,
     MAINTENANCE_INTERVAL_KM,
     MAINTENANCE_LAST_KM,
@@ -24,6 +26,7 @@ from .const import (
     CONF_REMOVED,
     SIGNAL_VEHICLES_UPDATED,
 )
+from .legal import get_legal_value, set_legal_value
 from .maintenance import get_maintenance_value, set_maintenance_value
 
 
@@ -82,6 +85,26 @@ async def async_setup_entry(
                     f"{label} - interval zile",
                     0,
                     5000,
+                )
+            )
+            entities.append(
+                VehicleMaintenanceCostNumber(
+                    hass,
+                    entry,
+                    vehicle,
+                    maintenance_type,
+                    f"{label} - cost estimat",
+                )
+            )
+
+        for legal_type, label in LEGAL_COST_TYPES.items():
+            entities.append(
+                VehicleLegalCostNumber(
+                    hass,
+                    entry,
+                    vehicle,
+                    legal_type,
+                    f"{label} - cost estimat",
                 )
             )
 
@@ -253,6 +276,94 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
                     self._field,
                     int(value),
                 )
+                break
+
+        await self._persist_vehicles(vehicles)
+
+
+class VehicleMaintenanceCostNumber(VehicleBaseNumber):
+    """Editable estimated maintenance cost."""
+
+    _attr_icon = "mdi:cash"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1_000_000
+    _attr_native_step = 0.01
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+        maintenance_type: str,
+        name: str,
+    ) -> None:
+        """Initialize maintenance cost number."""
+
+        super().__init__(hass, entry, vehicle)
+        self._maintenance_type = maintenance_type
+        self._attr_name = name
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{self._vehicle_id}_maintenance_{maintenance_type}_cost"
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return estimated maintenance cost."""
+
+        return float(get_maintenance_value(self._vehicle, self._maintenance_type, COST_AMOUNT) or 0)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set and persist estimated maintenance cost."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                set_maintenance_value(vehicle, self._maintenance_type, COST_AMOUNT, round(float(value), 2))
+                break
+
+        await self._persist_vehicles(vehicles)
+
+
+class VehicleLegalCostNumber(VehicleBaseNumber):
+    """Editable estimated legal cost."""
+
+    _attr_icon = "mdi:cash-clock"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 1_000_000
+    _attr_native_step = 0.01
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+        legal_type: str,
+        name: str,
+    ) -> None:
+        """Initialize legal cost number."""
+
+        super().__init__(hass, entry, vehicle)
+        self._legal_type = legal_type
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_legal_{legal_type}_cost"
+
+    @property
+    def native_value(self) -> float:
+        """Return estimated legal cost."""
+
+        return float(get_legal_value(self._vehicle, self._legal_type, COST_AMOUNT) or 0)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set and persist estimated legal cost."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                set_legal_value(vehicle, self._legal_type, COST_AMOUNT, round(float(value), 2))
                 break
 
         await self._persist_vehicles(vehicles)

@@ -28,6 +28,7 @@ from .const import (
     MAINTENANCE_TIME_ONLY_TYPES,
     MAINTENANCE_TYPE_SERVICE,
     MAINTENANCE_TYPES,
+    LEGAL_COST_TYPES,
     LEGAL_TYPES,
 )
 
@@ -208,7 +209,7 @@ def normalize_vehicle(vehicle: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         normalized[CONF_LEGAL_TERMS] = {}
         changed = True
 
-    for legal_type in LEGAL_TYPES:
+    for legal_type in LEGAL_COST_TYPES:
         if legal_type not in normalized[CONF_LEGAL_TERMS] or not isinstance(
             normalized[CONF_LEGAL_TERMS][legal_type], dict
         ):

@@ -15,7 +15,9 @@ from . import CarManagerConfigEntry
 from .const import (
     CONF_CONSUMABLES,
     CONSUMABLE_TYPES,
+    CASCO_TEXT_FIELDS,
     ITP_TEXT_FIELDS,
+    LEGAL_TYPE_CASCO,
     LEGAL_TYPE_ITP,
     LEGAL_TYPE_RCA,
     RCA_TEXT_FIELDS,
@@ -28,6 +30,7 @@ from .legal import get_legal_value, set_legal_value
 
 LEGAL_TEXT_FIELDS: dict[str, dict[str, str]] = {
     LEGAL_TYPE_RCA: RCA_TEXT_FIELDS,
+    LEGAL_TYPE_CASCO: CASCO_TEXT_FIELDS,
     LEGAL_TYPE_ITP: ITP_TEXT_FIELDS,
 }
 

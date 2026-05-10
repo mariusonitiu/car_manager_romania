@@ -49,15 +49,21 @@ from .const import (
     SERVICE_EXPORT_DATA,
     SERVICE_VALIDATE_BACKUP,
     SERVICE_IMPORT_DATA,
+    SERVICE_SET_LEGAL_OPTION,
+    SERVICE_CLEANUP_ORPHAN_ENTITIES,
+    LEGAL_OPTION_IGNORED,
+    LEGAL_TYPE_CASCO,
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_VERSION_NOTIFICATIONS,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
+    LEGAL_COST_TYPES,
     MAINTENANCE_TYPES,
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
 from .maintenance import get_maintenance_value, normalize_vehicles, set_maintenance_value
+from .legal import set_legal_ignored
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
 from .storage import CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
@@ -322,7 +328,7 @@ ADD_SERVICE_RECORD_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): str,
         vol.Required(CONF_VEHICLE_ID): str,
-        vol.Required("record_type"): vol.In(list(MAINTENANCE_TYPES.keys()) + ["rca", "itp", "rovinieta", "custom"]),
+        vol.Required("record_type"): vol.In(list(MAINTENANCE_TYPES.keys()) + list(LEGAL_COST_TYPES.keys()) + ["custom"]),
         vol.Optional("date"): str,
         vol.Optional(CONF_KM): vol.Coerce(int),
         vol.Optional("title", default=""): str,
@@ -392,6 +398,22 @@ IMPORT_DATA_SERVICE_SCHEMA = vol.Schema(
 )
 
 
+SET_LEGAL_OPTION_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Required("legal_type"): vol.In([LEGAL_TYPE_CASCO]),
+        vol.Required(LEGAL_OPTION_IGNORED): bool,
+    }
+)
+
+CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Optional("dry_run", default=False): bool,
+    }
+)
+
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
@@ -401,6 +423,183 @@ def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for vehicle in vehicles
         if isinstance(vehicle, dict) and not bool(vehicle.get(CONF_REMOVED))
     ]
+
+
+def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
+    """Build the set of entity unique IDs that should exist for the current entry.
+
+    This is used only for registry cleanup. It intentionally follows the unique_id
+    rules used by the entity classes, including legacy IDs kept for the first
+    general service entities.
+    """
+
+    from .const import (
+        CASCO_TEXT_FIELDS,
+        CONSUMABLE_TYPES,
+        COST_AMOUNT,
+        ITP_TEXT_FIELDS,
+        LEGAL_END_DATE,
+        LEGAL_START_DATE,
+        LEGAL_COST_TYPES,
+        LEGAL_TYPES,
+        LEGAL_TYPE_ITP,
+        LEGAL_TYPE_RCA,
+        MAINTENANCE_INTERVAL_DAYS,
+        MAINTENANCE_INTERVAL_KM,
+        MAINTENANCE_LAST_DATE,
+        MAINTENANCE_LAST_KM,
+        MAINTENANCE_TIME_ONLY_TYPES,
+        MAINTENANCE_TYPE_SERVICE,
+        RCA_TEXT_FIELDS,
+    )
+    from .rovinieta.helpers import slugify_plate
+
+    entry_id = entry.entry_id
+    expected: set[str] = {
+        f"{entry_id}_status",
+        f"{entry_id}_vehicle_count",
+    }
+
+    if entry.runtime_data.rovinieta_coordinator is not None:
+        expected.add(f"{entry_id}_rovinieta_refresh")
+
+    legal_text_fields = {
+        LEGAL_TYPE_RCA: RCA_TEXT_FIELDS,
+        LEGAL_TYPE_CASCO: CASCO_TEXT_FIELDS,
+        LEGAL_TYPE_ITP: ITP_TEXT_FIELDS,
+    }
+
+    coordinator = entry.runtime_data.rovinieta_coordinator
+    rovinieta_plates: set[str] = set()
+    if coordinator is not None and coordinator.data is not None:
+        for item in getattr(coordinator.data, "vehicles", []) or []:
+            plate = str(getattr(item, "plate_no", "") or "").replace(" ", "").upper()
+            if plate:
+                rovinieta_plates.add(plate)
+
+    for vehicle in entry.runtime_data.vehicles:
+        vehicle_id = str(vehicle.get(CONF_VEHICLE_ID) or vehicle.get("vehicle_id") or "").strip()
+        if not vehicle_id:
+            continue
+
+        expected.update(
+            {
+                f"{entry_id}_{vehicle_id}_km",
+                f"{entry_id}_{vehicle_id}_status",
+                f"{entry_id}_{vehicle_id}_upcoming_expenses_30_days",
+                f"{entry_id}_{vehicle_id}_upcoming_expenses_90_days",
+                f"{entry_id}_{vehicle_id}_annual_costs_current_year",
+            }
+        )
+
+        for maintenance_type in MAINTENANCE_TYPES:
+            if maintenance_type == MAINTENANCE_TYPE_SERVICE:
+                expected.update(
+                    {
+                        f"{entry_id}_{vehicle_id}_service_date",
+                        f"{entry_id}_{vehicle_id}_last_service_km",
+                        f"{entry_id}_{vehicle_id}_service_interval_km",
+                        f"{entry_id}_{vehicle_id}_service_interval_days",
+                        f"{entry_id}_{vehicle_id}_service_km_remaining",
+                        f"{entry_id}_{vehicle_id}_service_days_remaining",
+                        f"{entry_id}_{vehicle_id}_service_status",
+                        f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_{COST_AMOUNT}",
+                    }
+                )
+                continue
+
+            expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_last_date")
+            expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_interval_days")
+            expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_cost")
+            expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_days_remaining")
+            expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_status")
+
+            if maintenance_type not in MAINTENANCE_TIME_ONLY_TYPES:
+                expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_last_km")
+                expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_interval_km")
+                expected.add(f"{entry_id}_{vehicle_id}_maintenance_{maintenance_type}_km_remaining")
+
+        for legal_type in LEGAL_TYPES:
+            expected.update(
+                {
+                    f"{entry_id}_{vehicle_id}_{legal_type}_start_date",
+                    f"{entry_id}_{vehicle_id}_{legal_type}_end_date",
+                    f"{entry_id}_{vehicle_id}_{legal_type}_days_remaining",
+                    f"{entry_id}_{vehicle_id}_{legal_type}_status",
+                }
+            )
+
+        for legal_type in LEGAL_COST_TYPES:
+            expected.add(f"{entry_id}_{vehicle_id}_legal_{legal_type}_cost")
+
+        for consumable_key in CONSUMABLE_TYPES:
+            expected.add(f"{entry_id}_{vehicle_id}_consumable_{consumable_key}")
+
+        for legal_type, fields in legal_text_fields.items():
+            for field in fields:
+                expected.add(f"{entry_id}_{vehicle_id}_{legal_type}_{field}")
+
+        plate = str(vehicle.get(CONF_LICENSE_PLATE) or "").replace(" ", "").upper()
+        if plate and plate in rovinieta_plates:
+            slug = slugify_plate(vehicle.get(CONF_LICENSE_PLATE, vehicle_id))
+            expected.update(
+                {
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_status",
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_expiry",
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_days_remaining",
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_series",
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_category",
+                    f"{entry_id}_{vehicle_id}_{slug}_rovinieta_period",
+                }
+            )
+
+    return expected
+
+
+async def _async_cleanup_orphan_entities(
+    hass: HomeAssistant,
+    entry: CarManagerConfigEntry,
+    *,
+    dry_run: bool = False,
+) -> list[dict[str, str]]:
+    """Remove registry entities that belong to this entry but are no longer generated."""
+
+    from homeassistant.helpers import entity_registry as er
+
+    registry = er.async_get(hass)
+    expected = _expected_entity_unique_ids(entry)
+    removed: list[dict[str, str]] = []
+
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        unique_id = str(getattr(registry_entry, "unique_id", "") or "")
+        entity_id = str(getattr(registry_entry, "entity_id", "") or "")
+
+        if not unique_id or not entity_id:
+            continue
+        if unique_id in expected:
+            continue
+        if not unique_id.startswith(f"{entry.entry_id}_"):
+            continue
+
+        # Rovinieta can be temporarily unavailable if the external portal or login fails.
+        # Do not delete these entities automatically unless they are explicitly expected.
+        if "rovinieta" in unique_id:
+            continue
+
+        removed.append({"entity_id": entity_id, "unique_id": unique_id})
+        if not dry_run:
+            registry.async_remove(entity_id)
+
+    if removed:
+        action = "ar fi curățate" if dry_run else "curățate"
+        _LOGGER.info(
+            "Car Manager România: %s entități orfane %s din registry: %s",
+            len(removed),
+            action,
+            ", ".join(item["entity_id"] for item in removed),
+        )
+
+    return removed
 
 
 def _generate_vehicle_id(vehicles: list[dict[str, Any]], license_plate: str, vehicle_name: str) -> str:
@@ -494,6 +693,51 @@ def _maintenance_snapshot(vehicle: dict[str, Any], maintenance_type: str) -> dic
         MAINTENANCE_LAST_KM: get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM),
         CONF_KM: vehicle.get(CONF_KM),
     }
+
+
+
+
+def _is_service_record_newer_than_current(
+    vehicle: dict[str, Any],
+    maintenance_type: str,
+    record_date: str,
+    km_value: int,
+) -> bool:
+    """Return True only when a history record should become the current maintenance baseline."""
+
+    current_date_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_DATE)
+    current_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM)
+
+    try:
+        new_date = dt_date.fromisoformat(str(record_date))
+    except (TypeError, ValueError):
+        return False
+
+    current_date = None
+    if current_date_raw:
+        try:
+            current_date = dt_date.fromisoformat(str(current_date_raw))
+        except (TypeError, ValueError):
+            current_date = None
+
+    if current_date is None:
+        return True
+
+    if new_date > current_date:
+        return True
+
+    if new_date < current_date:
+        return False
+
+    if km_value <= 0:
+        return False
+
+    try:
+        current_km = int(current_km_raw or 0)
+    except (TypeError, ValueError):
+        current_km = 0
+
+    return km_value > current_km
 
 
 def _apply_maintenance_snapshot(vehicle: dict[str, Any], snapshot: dict[str, Any]) -> None:
@@ -598,6 +842,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_EXPORT_DATA)
         and hass.services.has_service(DOMAIN, SERVICE_VALIDATE_BACKUP)
         and hass.services.has_service(DOMAIN, SERVICE_IMPORT_DATA)
+        and hass.services.has_service(DOMAIN, SERVICE_SET_LEGAL_OPTION)
     ):
         return
 
@@ -822,31 +1067,45 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         vehicle_id = _vehicle_internal_id(found_vehicle)
 
-        update_maintenance = bool(call.data.get("update_maintenance", True))
+        requested_maintenance_update = bool(call.data.get("update_maintenance", True))
+        update_maintenance = False
+        maintenance_update_skipped_reason = ""
         previous_maintenance = None
         updated_maintenance = None
 
-        if update_maintenance and record_type in MAINTENANCE_TYPES:
-            previous_maintenance = _maintenance_snapshot(found_vehicle, record_type)
+        if requested_maintenance_update and record_type in MAINTENANCE_TYPES:
+            if _is_service_record_newer_than_current(
+                found_vehicle,
+                record_type,
+                record_date,
+                km_value,
+            ):
+                update_maintenance = True
+                previous_maintenance = _maintenance_snapshot(found_vehicle, record_type)
 
-            set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_DATE, record_date)
-            if km_value > 0:
-                set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_KM, km_value)
-                if int(found_vehicle.get(CONF_KM, 0) or 0) < km_value:
-                    found_vehicle[CONF_KM] = km_value
+                set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_DATE, record_date)
+                if km_value > 0:
+                    set_maintenance_value(found_vehicle, record_type, MAINTENANCE_LAST_KM, km_value)
+                    if int(found_vehicle.get(CONF_KM, 0) or 0) < km_value:
+                        found_vehicle[CONF_KM] = km_value
 
-            updated_maintenance = _maintenance_snapshot(found_vehicle, record_type)
+                updated_maintenance = _maintenance_snapshot(found_vehicle, record_type)
 
-            normalized_vehicles, _ = normalize_vehicles(vehicles)
-            active_vehicles = _active_vehicles(normalized_vehicles)
-            await vehicle_store.async_save_vehicles(normalized_vehicles)
-            entry.runtime_data.vehicles = active_vehicles
-            entry.runtime_data.all_vehicles = normalized_vehicles
-            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+                normalized_vehicles, _ = normalize_vehicles(vehicles)
+                active_vehicles = _active_vehicles(normalized_vehicles)
+                await vehicle_store.async_save_vehicles(normalized_vehicles)
+                entry.runtime_data.vehicles = active_vehicles
+                entry.runtime_data.all_vehicles = normalized_vehicles
+                dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
 
-            from .notify import async_check_maintenance_notifications
+                from .notify import async_check_maintenance_notifications
 
-            hass.async_create_task(async_check_maintenance_notifications(hass, entry))
+                hass.async_create_task(async_check_maintenance_notifications(hass, entry))
+            else:
+                maintenance_update_skipped_reason = (
+                    "Intervenția este mai veche decât mentenanța curentă sau nu are "
+                    "kilometraj mai mare pentru aceeași dată. A fost salvată doar în istoric."
+                )
 
         record = {
             "record_id": f"rec_{uuid4().hex[:12]}",
@@ -860,7 +1119,10 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "invoice_number": str(call.data.get("invoice_number", "")).strip(),
             "notes": str(call.data.get("notes", "")).strip(),
             "update_maintenance": update_maintenance,
+            "requested_update_maintenance": requested_maintenance_update,
         }
+        if maintenance_update_skipped_reason:
+            record["maintenance_update_skipped_reason"] = maintenance_update_skipped_reason
         if previous_maintenance is not None:
             record["previous_maintenance"] = previous_maintenance
         if updated_maintenance is not None:
@@ -1477,6 +1739,72 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not dry_run:
             await hass.config_entries.async_reload(entry.entry_id)
 
+    async def async_set_legal_option(call: ServiceCall) -> None:
+        """Set optional legal-term visibility flags for one vehicle."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_store = entry.runtime_data.vehicle_store
+
+        legal_type = str(call.data["legal_type"]).strip()
+        vehicle_reference = str(call.data[CONF_VEHICLE_ID]).strip()
+        ignored = bool(call.data[LEGAL_OPTION_IGNORED])
+
+        stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_reference)
+        if found_vehicle is None:
+            raise HomeAssistantError(
+                f"Nu am găsit autovehiculul '{vehicle_reference}' pentru actualizarea opțiunii."
+            )
+
+        set_legal_ignored(found_vehicle, legal_type, ignored)
+
+        normalized_vehicles, _ = normalize_vehicles(vehicles)
+        active_vehicles = _active_vehicles(normalized_vehicles)
+        await vehicle_store.async_save_vehicles(normalized_vehicles)
+        entry.runtime_data.vehicles = active_vehicles
+        entry.runtime_data.all_vehicles = normalized_vehicles
+        dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_cleanup_orphan_entities(call: ServiceCall) -> None:
+        """Clean registry entities that are no longer generated by this integration."""
+
+        target_entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        dry_run = bool(call.data.get("dry_run", False))
+        cleaned = await _async_cleanup_orphan_entities(hass, target_entry, dry_run=dry_run)
+
+        try:
+            from homeassistant.components import persistent_notification
+
+            if cleaned:
+                sample = "\n".join(f"- `{item['entity_id']}`" for item in cleaned[:20])
+                extra = "" if len(cleaned) <= 20 else f"\n... încă {len(cleaned) - 20} entități."
+                persistent_notification.async_create(
+                    hass,
+                    f"Entități {'găsite' if dry_run else 'curățate'}: {len(cleaned)}\n\n{sample}{extra}",
+                    title="Car Manager România - curățare entități orfane",
+                    notification_id="car_manager_romania_cleanup_orphan_entities",
+                )
+            else:
+                persistent_notification.async_create(
+                    hass,
+                    "Nu am găsit entități orfane pentru Car Manager România.",
+                    title="Car Manager România - curățare entități orfane",
+                    notification_id="car_manager_romania_cleanup_orphan_entities",
+                )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("Nu am putut crea notificarea pentru curățarea entităților: %s", err)
+
+        if cleaned and not dry_run:
+            await hass.config_entries.async_reload(target_entry.entry_id)
+
 
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
@@ -1562,6 +1890,20 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             async_import_data,
             schema=IMPORT_DATA_SERVICE_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_LEGAL_OPTION):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_LEGAL_OPTION,
+            async_set_legal_option,
+            schema=SET_LEGAL_OPTION_SERVICE_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_CLEANUP_ORPHAN_ENTITIES):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_CLEANUP_ORPHAN_ENTITIES,
+            async_cleanup_orphan_entities,
+            schema=CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA,
+        )
     hass.data[DOMAIN]["services_registered"] = True
 
 async def async_setup_entry(
@@ -1603,6 +1945,13 @@ async def async_setup_entry(
     await _async_register_frontend(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    cleaned_entities = await _async_cleanup_orphan_entities(hass, entry, dry_run=False)
+    if cleaned_entities:
+        _LOGGER.info(
+            "Car Manager România: am curățat automat %s entități orfane după încărcarea platformelor.",
+            len(cleaned_entities),
+        )
 
     from .notify import async_check_maintenance_notifications
 

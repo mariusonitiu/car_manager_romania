@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.0"
+VERSION = "1.0.6"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -27,6 +27,8 @@ SERVICE_UPDATE_SERVICE_RECORD = "update_service_record"
 SERVICE_EXPORT_DATA = "export_data"
 SERVICE_VALIDATE_BACKUP = "validate_backup"
 SERVICE_IMPORT_DATA = "import_data"
+SERVICE_SET_LEGAL_OPTION = "set_legal_option"
+SERVICE_CLEANUP_ORPHAN_ENTITIES = "cleanup_orphan_entities"
 
 CONF_VEHICLE_ID = "vehicle_id"
 CONF_REMOVED = "removed"
@@ -69,6 +71,8 @@ MAINTENANCE_LAST_KM = "last_km"
 MAINTENANCE_LAST_DATE = "last_date"
 MAINTENANCE_INTERVAL_KM = "interval_km"
 MAINTENANCE_INTERVAL_DAYS = "interval_days"
+
+COST_AMOUNT = "cost"
 
 MAINTENANCE_STATUS_UNKNOWN = "necunoscut"
 MAINTENANCE_STATUS_OK = "ok"
@@ -166,15 +170,28 @@ MIN_ROVINIETA_SCAN_INTERVAL = 15 * 60
 CONF_LEGAL_TERMS = "legal_terms"
 
 LEGAL_TYPE_RCA = "rca"
+LEGAL_TYPE_CASCO = "casco"
 LEGAL_TYPE_ITP = "itp"
+LEGAL_TYPE_ROVINIETA = "rovinieta"
 
+# Termene legale cu perioadă de valabilitate editabilă manual.
+# Rovinieta rămâne gestionată prioritar prin modulul e-rovinieta.ro; aici păstrăm doar costul estimat/planificat.
 LEGAL_TYPES: dict[str, str] = {
     LEGAL_TYPE_RCA: "RCA",
+    LEGAL_TYPE_CASCO: "CASCO",
     LEGAL_TYPE_ITP: "ITP",
+}
+
+LEGAL_COST_TYPES: dict[str, str] = {
+    LEGAL_TYPE_RCA: "RCA",
+    LEGAL_TYPE_CASCO: "CASCO",
+    LEGAL_TYPE_ITP: "ITP",
+    LEGAL_TYPE_ROVINIETA: "Rovinietă",
 }
 
 LEGAL_START_DATE = "start_date"
 LEGAL_END_DATE = "end_date"
+LEGAL_OPTION_IGNORED = "ignored"
 
 LEGAL_STATUS_UNKNOWN = "neconfigurat"
 LEGAL_STATUS_VALID = "valid"
@@ -192,6 +209,19 @@ RCA_TEXT_FIELDS: dict[str, str] = {
     RCA_INSURER: "RCA - asigurător",
     RCA_POLICY_NUMBER: "RCA - număr poliță",
     RCA_NOTES: "RCA - observații",
+}
+
+# Câmpuri CASCO introduse manual.
+CASCO_INSURER = "insurer"
+CASCO_POLICY_NUMBER = "policy_number"
+CASCO_COVERAGE = "coverage"
+CASCO_NOTES = "notes"
+
+CASCO_TEXT_FIELDS: dict[str, str] = {
+    CASCO_INSURER: "CASCO - asigurător",
+    CASCO_POLICY_NUMBER: "CASCO - număr poliță",
+    CASCO_COVERAGE: "CASCO - acoperire",
+    CASCO_NOTES: "CASCO - observații",
 }
 
 # Câmpuri ITP introduse manual. Verificarea automată se va trata separat ulterior.
