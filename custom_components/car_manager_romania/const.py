@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
@@ -29,6 +29,8 @@ SERVICE_VALIDATE_BACKUP = "validate_backup"
 SERVICE_IMPORT_DATA = "import_data"
 SERVICE_SET_LEGAL_OPTION = "set_legal_option"
 SERVICE_CLEANUP_ORPHAN_ENTITIES = "cleanup_orphan_entities"
+SERVICE_ADD_FUEL_RECEIPT = "add_fuel_receipt"
+SERVICE_DELETE_FUEL_RECEIPT = "delete_fuel_receipt"
 
 CONF_VEHICLE_ID = "vehicle_id"
 CONF_REMOVED = "removed"
@@ -37,6 +39,7 @@ CONF_NAME = "name"
 CONF_LICENSE_PLATE = "license_plate"
 CONF_VIN = "vin"
 CONF_KM = "km"
+CONF_FUEL_PROFILE = "fuel_profile"
 
 # Câmpuri existente pentru revizia generală.
 # Le păstrăm pentru compatibilitate cu datele și entitățile deja create.
@@ -147,6 +150,63 @@ DEFAULT_CONSUMABLE_VALUES: dict[str, str] = {
     CONSUMABLE_TIMING_KIT: "",
 }
 
+
+# Profil combustibil / motorizare și alimentări.
+FUEL_PROFILE_GASOLINE = "gasoline"
+FUEL_PROFILE_DIESEL = "diesel"
+FUEL_PROFILE_LPG = "lpg"
+FUEL_PROFILE_ELECTRIC = "electric"
+FUEL_PROFILE_HYBRID_GASOLINE = "hybrid_gasoline"
+FUEL_PROFILE_HYBRID_DIESEL = "hybrid_diesel"
+FUEL_PROFILE_PHEV_GASOLINE = "phev_gasoline"
+FUEL_PROFILE_PHEV_DIESEL = "phev_diesel"
+
+FUEL_PROFILES: dict[str, str] = {
+    FUEL_PROFILE_GASOLINE: "Benzină",
+    FUEL_PROFILE_DIESEL: "Motorină",
+    FUEL_PROFILE_LPG: "GPL",
+    FUEL_PROFILE_ELECTRIC: "Electric",
+    FUEL_PROFILE_HYBRID_GASOLINE: "Hibrid benzină",
+    FUEL_PROFILE_HYBRID_DIESEL: "Hibrid motorină",
+    FUEL_PROFILE_PHEV_GASOLINE: "Plug-in hybrid benzină",
+    FUEL_PROFILE_PHEV_DIESEL: "Plug-in hybrid motorină",
+}
+
+FUEL_TYPE_GASOLINE_STANDARD = "gasoline_standard"
+FUEL_TYPE_GASOLINE_PREMIUM = "gasoline_premium"
+FUEL_TYPE_DIESEL_STANDARD = "diesel_standard"
+FUEL_TYPE_DIESEL_PREMIUM = "diesel_premium"
+FUEL_TYPE_LPG = "lpg"
+FUEL_TYPE_ELECTRIC_CHARGE = "electric_charge"
+
+FUEL_TYPES: dict[str, str] = {
+    FUEL_TYPE_GASOLINE_STANDARD: "Benzină standard",
+    FUEL_TYPE_GASOLINE_PREMIUM: "Benzină premium",
+    FUEL_TYPE_DIESEL_STANDARD: "Motorină standard",
+    FUEL_TYPE_DIESEL_PREMIUM: "Motorină premium",
+    FUEL_TYPE_LPG: "GPL",
+    FUEL_TYPE_ELECTRIC_CHARGE: "Încărcare electrică",
+}
+
+FUEL_TYPES_BY_PROFILE: dict[str, list[str]] = {
+    FUEL_PROFILE_GASOLINE: [FUEL_TYPE_GASOLINE_STANDARD, FUEL_TYPE_GASOLINE_PREMIUM],
+    FUEL_PROFILE_DIESEL: [FUEL_TYPE_DIESEL_STANDARD, FUEL_TYPE_DIESEL_PREMIUM],
+    FUEL_PROFILE_LPG: [FUEL_TYPE_LPG, FUEL_TYPE_GASOLINE_STANDARD, FUEL_TYPE_GASOLINE_PREMIUM],
+    FUEL_PROFILE_ELECTRIC: [FUEL_TYPE_ELECTRIC_CHARGE],
+    FUEL_PROFILE_HYBRID_GASOLINE: [FUEL_TYPE_GASOLINE_STANDARD, FUEL_TYPE_GASOLINE_PREMIUM],
+    FUEL_PROFILE_HYBRID_DIESEL: [FUEL_TYPE_DIESEL_STANDARD, FUEL_TYPE_DIESEL_PREMIUM],
+    FUEL_PROFILE_PHEV_GASOLINE: [FUEL_TYPE_GASOLINE_STANDARD, FUEL_TYPE_GASOLINE_PREMIUM, FUEL_TYPE_ELECTRIC_CHARGE],
+    FUEL_PROFILE_PHEV_DIESEL: [FUEL_TYPE_DIESEL_STANDARD, FUEL_TYPE_DIESEL_PREMIUM, FUEL_TYPE_ELECTRIC_CHARGE],
+}
+
+FUEL_LIQUID_TYPES: set[str] = {
+    FUEL_TYPE_GASOLINE_STANDARD,
+    FUEL_TYPE_GASOLINE_PREMIUM,
+    FUEL_TYPE_DIESEL_STANDARD,
+    FUEL_TYPE_DIESEL_PREMIUM,
+    FUEL_TYPE_LPG,
+}
+
 STORAGE_KEY_NOTIFICATIONS = f"{DOMAIN}_notifications"
 STORAGE_VERSION_NOTIFICATIONS = 1
 
@@ -155,6 +215,9 @@ STORAGE_VERSION_VEHICLES = 1
 
 STORAGE_KEY_SERVICE_HISTORY = f"{DOMAIN}_service_history"
 STORAGE_VERSION_SERVICE_HISTORY = 1
+
+STORAGE_KEY_FUEL_RECEIPTS = f"{DOMAIN}_fuel_receipts"
+STORAGE_VERSION_FUEL_RECEIPTS = 1
 
 # Modul intern e-rovinieta.ro.
 CONF_ROVINIETA_USERNAME = "rovinieta_username"

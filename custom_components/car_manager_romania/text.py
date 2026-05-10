@@ -14,6 +14,7 @@ from homeassistant.helpers.dispatcher import dispatcher_send
 from . import CarManagerConfigEntry
 from .const import (
     CONF_CONSUMABLES,
+    CONF_FUEL_PROFILE,
     CONSUMABLE_TYPES,
     CASCO_TEXT_FIELDS,
     ITP_TEXT_FIELDS,
@@ -45,6 +46,8 @@ async def async_setup_entry(
     entities: list[TextEntity] = []
 
     for vehicle in entry.runtime_data.vehicles:
+        entities.append(VehicleFuelProfileText(hass, entry, vehicle))
+
         for consumable_key, label in CONSUMABLE_TYPES.items():
             entities.append(
                 VehicleConsumableText(
@@ -124,6 +127,42 @@ class VehicleBaseText(TextEntity):
                 break
 
         self.async_write_ha_state()
+
+
+class VehicleFuelProfileText(VehicleBaseText):
+    """Editable vehicle fuel profile/motorization."""
+
+    _attr_name = "Motorizare"
+    _attr_icon = "mdi:gas-station"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: CarManagerConfigEntry,
+        vehicle: dict[str, Any],
+    ) -> None:
+        """Initialize fuel profile text entity."""
+
+        super().__init__(hass, entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{CONF_FUEL_PROFILE}"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return fuel profile."""
+
+        return str(self._vehicle.get(CONF_FUEL_PROFILE, "diesel") or "diesel")
+
+    async def async_set_value(self, value: str) -> None:
+        """Set and persist fuel profile."""
+
+        vehicles = self._get_vehicles_for_update()
+
+        for vehicle in vehicles:
+            if vehicle["vehicle_id"] == self._vehicle_id:
+                vehicle[CONF_FUEL_PROFILE] = value
+                break
+
+        await self._persist_vehicles(vehicles)
 
 
 class VehicleConsumableText(VehicleBaseText):

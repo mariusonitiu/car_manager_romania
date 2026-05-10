@@ -8,6 +8,7 @@ from typing import Any
 
 from .const import (
     CONF_CONSUMABLES,
+    CONF_FUEL_PROFILE,
     CONF_LAST_SERVICE_DATE,
     CONF_LEGAL_TERMS,
     CONF_LAST_SERVICE_KM,
@@ -194,6 +195,10 @@ def normalize_vehicle(vehicle: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                 if not normalized[storage_key].get(field) and default_value:
                     normalized[storage_key][field] = default_value
                     changed = True
+
+    if CONF_FUEL_PROFILE not in normalized or not normalized.get(CONF_FUEL_PROFILE):
+        normalized[CONF_FUEL_PROFILE] = "diesel"
+        changed = True
 
     if CONF_CONSUMABLES not in normalized or not isinstance(normalized[CONF_CONSUMABLES], dict):
         normalized[CONF_CONSUMABLES] = {}

@@ -11,9 +11,11 @@ from homeassistant.helpers.storage import Store
 from .const import (
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_KEY_SERVICE_HISTORY,
+    STORAGE_KEY_FUEL_RECEIPTS,
     STORAGE_KEY_VEHICLES,
     STORAGE_VERSION_NOTIFICATIONS,
     STORAGE_VERSION_SERVICE_HISTORY,
+    STORAGE_VERSION_FUEL_RECEIPTS,
     STORAGE_VERSION_VEHICLES,
 )
 
@@ -163,6 +165,75 @@ class CarManagerServiceHistoryStore:
             return False
 
         await self._store.async_save({"records": self._records})
+        return True
+
+
+class CarManagerFuelReceiptStore:
+    """Store fuel receipts separately from service history."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize fuel receipt store."""
+
+        self._store: Store = Store(
+            hass,
+            STORAGE_VERSION_FUEL_RECEIPTS,
+            STORAGE_KEY_FUEL_RECEIPTS,
+        )
+        self._receipts: list[dict[str, Any]] = []
+        self._loaded = False
+
+    async def async_load(self) -> None:
+        """Load fuel receipts."""
+
+        if self._loaded:
+            return
+
+        data = await self._store.async_load()
+        if isinstance(data, dict):
+            receipts = data.get("receipts")
+            if isinstance(receipts, list):
+                self._receipts = [
+                    deepcopy(receipt)
+                    for receipt in receipts
+                    if isinstance(receipt, dict)
+                ]
+
+        self._loaded = True
+
+    async def async_get_receipts(self) -> list[dict[str, Any]]:
+        """Return all fuel receipts."""
+
+        await self.async_load()
+        return deepcopy(self._receipts)
+
+    async def async_save_receipts(self, receipts: list[dict[str, Any]]) -> None:
+        """Persist fuel receipts."""
+
+        await self.async_load()
+        self._receipts = [deepcopy(receipt) for receipt in receipts if isinstance(receipt, dict)]
+        await self._store.async_save({"receipts": self._receipts})
+
+    async def async_add_receipt(self, receipt: dict[str, Any]) -> None:
+        """Append and persist a fuel receipt."""
+
+        await self.async_load()
+        self._receipts.append(deepcopy(receipt))
+        await self._store.async_save({"receipts": self._receipts})
+
+    async def async_delete_receipt(self, receipt_id: str) -> bool:
+        """Delete a fuel receipt by ID."""
+
+        await self.async_load()
+        original_count = len(self._receipts)
+        self._receipts = [
+            receipt
+            for receipt in self._receipts
+            if str(receipt.get("receipt_id", "")) != receipt_id
+        ]
+        if len(self._receipts) == original_count:
+            return False
+
+        await self._store.async_save({"receipts": self._receipts})
         return True
 
 

@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.7"; }
+  static get version() { return "1.0.8"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -25,6 +25,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._serviceRecordEditOpen = this._serviceRecordEditOpen || new Set();
     this._serviceRecordEditDrafts = this._serviceRecordEditDrafts || {};
     this._serviceRecordBusy = this._serviceRecordBusy || null;
+    this._fuelFormOpen = this._fuelFormOpen || new Set();
+    this._fuelReceiptDrafts = this._fuelReceiptDrafts || {};
+    this._fuelReceiptBusy = this._fuelReceiptBusy || null;
+    this._fuelReceiptMessage = this._fuelReceiptMessage || {};
     this._serviceRecordMessage = this._serviceRecordMessage || {};
     this._inputEditing = this._inputEditing || false;
     this._backupOpen = this._backupOpen || false;
@@ -84,7 +88,9 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._backupOpen ? this._renderBackupPanel() : ""}
           ${this._activeTab === "costs"
             ? this._renderCostsTab(visibleVehicles)
-            : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
+            : this._activeTab === "fuel"
+              ? this._renderFuelTab(visibleVehicles)
+              : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
         </div>
       </ha-card>
     `;
@@ -266,6 +272,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       <div class="cmr-tabs" role="tablist">
         <button class="cmr-tab ${active === "vehicles" ? "is-active" : ""}" data-action="set-tab" data-tab="vehicles" type="button">Autovehicule</button>
         <button class="cmr-tab ${active === "costs" ? "is-active" : ""}" data-action="set-tab" data-tab="costs" type="button">Costuri</button>
+        <button class="cmr-tab ${active === "fuel" ? "is-active" : ""}" data-action="set-tab" data-tab="fuel" type="button">Combustibil</button>
       </div>
     `;
   }
@@ -323,11 +330,161 @@ class CarManagerRomaniaCard extends HTMLElement {
     `;
   }
 
+
+  _renderFuelTab(vehicles) {
+    if (!vehicles.length) return this._renderEmpty();
+
+    const summaries = vehicles.map((vehicle) => this._fuelSummaryForVehicle(vehicle));
+    const totalYear = summaries.reduce((sum, item) => sum + item.yearCost, 0);
+    const totalMonth = summaries.reduce((sum, item) => sum + item.monthCost, 0);
+    const receipts = summaries.flatMap((summary) => summary.receipts.map((receipt) => ({ ...receipt, vehicle_label: summary.label })));
+
+    return `
+      <section class="cmr-costs-panel">
+        <div class="cmr-section-title">Combustibil</div>
+        <div class="cmr-cost-summary-grid">
+          ${this._renderCostSummaryCard("Combustibil anul curent", totalYear, "Din bonurile salvate")}
+          ${this._renderCostSummaryCard("Combustibil luna curentă", totalMonth, "Din bonurile salvate")}
+          ${this._renderCostSummaryCard("Bonuri salvate", `${receipts.length}`, "Total alimentări afișate")}
+        </div>
+        ${summaries.map((summary) => this._renderFuelVehiclePanel(summary)).join("")}
+      </section>
+    `;
+  }
+
+  _fuelSummaryForVehicle(vehicle) {
+    const attrs = this._vehicleStatusAttributes(vehicle);
+    const yearSensor = this._findSensorByName(vehicle, ["combustibil", "anul", "curent"]);
+    const monthSensor = this._findSensorByName(vehicle, ["combustibil", "luna", "curenta"]);
+    const consumptionSensor = this._findSensorByName(vehicle, ["consum", "mediu", "combustibil"]);
+    const receipts = Array.isArray(attrs.fuel_receipts) ? attrs.fuel_receipts : [];
+    const intervals = Array.isArray(attrs.fuel_consumption_intervals) ? attrs.fuel_consumption_intervals : [];
+    return {
+      vehicle,
+      key: vehicle.vehicle_id || vehicle.key || vehicle.label,
+      label: vehicle.label || "Autovehicul",
+      plate: vehicle.plate || "",
+      yearCost: this._toNumber(this._entityValue(yearSensor)),
+      monthCost: this._toNumber(this._entityValue(monthSensor)),
+      averageConsumption: this._entityValue(consumptionSensor),
+      receipts,
+      intervals,
+    };
+  }
+
+  _renderFuelVehiclePanel(summary) {
+    const open = this._fuelFormOpen.has(summary.key);
+    const message = this._fuelReceiptMessage[summary.key] || "";
+    const latestInterval = summary.intervals?.[0];
+    return `
+      <div class="cmr-cost-section">
+        <div class="cmr-section-head">
+          <div>
+            <div class="cmr-section-title">${this._escape(summary.label)}</div>
+            <div class="cmr-row-muted">${this._escape(summary.plate || "")}</div>
+          </div>
+          <button class="cmr-mini-action" type="button" data-action="toggle-fuel-form" data-vehicle="${this._escape(summary.key)}">${open ? "Închide" : "Adaugă bon"}</button>
+        </div>
+        <div class="cmr-cost-summary-grid cmr-fuel-summary-grid">
+          ${this._renderCostSummaryCard("An curent", summary.yearCost, "combustibil")}
+          ${this._renderCostSummaryCard("Luna curentă", summary.monthCost, "combustibil")}
+          ${this._renderCostSummaryCard("Consum mediu", summary.averageConsumption && summary.averageConsumption !== "unknown" && summary.averageConsumption !== "unavailable" ? `${summary.averageConsumption} L/100 km` : "—", latestInterval ? `${latestInterval.distance_km} km · ${latestInterval.liters} L` : "necalculat")}
+        </div>
+        ${open ? this._renderFuelReceiptForm(summary.vehicle) : ""}
+        ${message ? `<div class="cmr-message">${this._escape(message)}</div>` : ""}
+        ${this._renderFuelReceipts(summary)}
+      </div>
+    `;
+  }
+
+  _renderFuelMini(vehicle) {
+    const yearSensor = this._findSensorByName(vehicle, ["combustibil", "anul", "curent"]);
+    const monthSensor = this._findSensorByName(vehicle, ["combustibil", "luna", "curenta"]);
+    const consumptionSensor = this._findSensorByName(vehicle, ["consum", "mediu", "combustibil"]);
+    if (!yearSensor && !monthSensor && !consumptionSensor) return "";
+    return `<div class="cmr-section"><div class="cmr-section-title">Combustibil</div>
+      ${this._renderRow("An curent", this._formatMoney(this._toNumber(this._entityValue(yearSensor))), "", "", "")}
+      ${this._renderRow("Luna curentă", this._formatMoney(this._toNumber(this._entityValue(monthSensor))), "", "", "")}
+      ${this._renderRow("Consum mediu", this._entityValue(consumptionSensor) ? `${this._entityValue(consumptionSensor)} L/100 km` : "—", "", "", "")}
+    </div>`;
+  }
+
+  _renderFuelReceiptForm(vehicle) {
+    const vehicleKey = vehicle.vehicle_id || vehicle.key || vehicle.label || "";
+    const draft = this._fuelReceiptDrafts[vehicleKey] || {};
+    const today = new Date().toISOString().slice(0, 10);
+    const fuelProfile = this._vehicleFuelProfile(vehicle);
+    const fuelOptions = this._fuelTypeOptions(fuelProfile, draft.fuel_type || "");
+    return `
+      <form class="cmr-history-form" data-form="fuel-receipt" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
+        <div class="cmr-add-grid">
+          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(draft.date || today)}"></label>
+          <label class="cmr-field"><span>Kilometraj bord</span><input type="number" name="km" min="1" step="1" required value="${this._escape(draft.km || this._extractSummary(vehicle).km || "")}"></label>
+          <label class="cmr-field"><span>Tip combustibil</span><select name="fuel_type" required>${fuelOptions}</select></label>
+          <label class="cmr-field"><span>Litri / kWh</span><input type="number" name="quantity" min="0.001" step="0.001" required value="${this._escape(draft.quantity || "")}"></label>
+          <label class="cmr-field"><span>Valoare bon</span><input type="number" name="total_cost" min="0.01" step="0.01" required value="${this._escape(draft.total_cost || "")}"></label>
+          <label class="cmr-field"><span>Stație</span><input type="text" name="station" value="${this._escape(draft.station || "")}" placeholder="opțional"></label>
+        </div>
+        <label class="cmr-check"><input type="checkbox" name="full_tank" ${draft.full_tank === false ? "" : "checked"}> Plin făcut</label>
+        <label class="cmr-field"><span>Observații</span><textarea name="notes" rows="2">${this._escape(draft.notes || "")}</textarea></label>
+        <div class="cmr-add-actions">
+          <button class="cmr-action" type="submit" ${this._fuelReceiptBusy === vehicleKey ? "disabled" : ""}>${this._fuelReceiptBusy === vehicleKey ? "Se salvează..." : "Salvează bon"}</button>
+        </div>
+      </form>
+    `;
+  }
+
+  _renderFuelReceipts(summary) {
+    const receipts = Array.isArray(summary.receipts) ? summary.receipts : [];
+    if (!receipts.length) return `<div class="cmr-history-empty">Nu există bonuri de combustibil salvate încă.</div>`;
+    return `<div class="cmr-cost-list">${receipts.slice(0, 8).map((receipt) => `
+      <div class="cmr-cost-item">
+        <div class="cmr-cost-item-main">
+          <div class="cmr-cost-item-title">${this._escape(receipt.fuel_type_label || "Combustibil")} <span>${this._escape(receipt.date || "")}</span></div>
+          <div class="cmr-row-muted">${this._escape([receipt.km ? `${receipt.km} km` : "", receipt.quantity ? `${receipt.quantity} ${receipt.unit || "L"}` : "", receipt.unit_price ? `${receipt.unit_price} RON/${receipt.unit || "L"}` : "", receipt.station || ""].filter(Boolean).join(" · "))}</div>
+        </div>
+        <div class="cmr-cost-item-value">${this._formatMoney(receipt.total_cost)}</div>
+      </div>
+    `).join("")}</div>`;
+  }
+
+  _vehicleFuelProfile(vehicle) {
+    const entity = vehicle.entities.find((item) => item.entityId?.startsWith("text.") && this._normalize(this._friendly(item)).includes("motorizare"));
+    const value = (entity?.stateObj?.state || "diesel").toString();
+    return value && value !== "unknown" && value !== "unavailable" ? value : "diesel";
+  }
+
+  _fuelProfileOptions(selected) {
+    const options = [
+      ["gasoline", "Benzină"], ["diesel", "Motorină"], ["lpg", "GPL"], ["electric", "Electric"],
+      ["hybrid_gasoline", "Hibrid benzină"], ["hybrid_diesel", "Hibrid motorină"],
+      ["phev_gasoline", "Plug-in hybrid benzină"], ["phev_diesel", "Plug-in hybrid motorină"],
+    ];
+    return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  _fuelTypeOptions(profile, selected) {
+    const byProfile = {
+      gasoline: [["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"]],
+      diesel: [["diesel_standard", "Motorină standard"], ["diesel_premium", "Motorină premium"]],
+      lpg: [["lpg", "GPL"], ["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"]],
+      electric: [["electric_charge", "Încărcare electrică"]],
+      hybrid_gasoline: [["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"]],
+      hybrid_diesel: [["diesel_standard", "Motorină standard"], ["diesel_premium", "Motorină premium"]],
+      phev_gasoline: [["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"], ["electric_charge", "Încărcare electrică"]],
+      phev_diesel: [["diesel_standard", "Motorină standard"], ["diesel_premium", "Motorină premium"], ["electric_charge", "Încărcare electrică"]],
+    };
+    const options = byProfile[profile] || byProfile.diesel;
+    const selectedValue = selected || options[0][0];
+    return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
+  }
+
   _renderCostSummaryCard(title, amount, subtitle) {
+    const displayValue = typeof amount === "string" ? amount : this._formatMoney(amount);
     return `
       <div class="cmr-cost-card">
         <div class="cmr-cost-title">${this._escape(title)}</div>
-        <div class="cmr-cost-value">${this._formatMoney(amount)}</div>
+        <div class="cmr-cost-value">${this._escape(displayValue)}</div>
         <div class="cmr-row-muted">${this._escape(subtitle || "")}</div>
       </div>
     `;
@@ -457,7 +614,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${expanded ? "Ascunde detalii" : "Detalii"}
         </button>
       </div>
-      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
+      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
     `;
   }
 
@@ -818,7 +975,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     ).filter((entity) => this._isEditableField(entity));
 
     const groups = [
-      { title: "Date autovehicul", test: (e) => this._isVehicleEditField(e) },
+      { title: "Date autovehicul", test: (e) => this._isVehicleEditField(e) || this._isFuelProfileEditField(e) },
       { title: "Revizie generală", test: (e) => this._isMaintenanceEditField(e, ["revizie"]) },
       { title: "Ulei cutie viteze", test: (e) => this._isMaintenanceEditField(e, ["ulei cutie"]) },
       { title: "Distribuție", test: (e) => this._isMaintenanceEditField(e, ["distribu"]) },
@@ -1011,6 +1168,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       ["brake_fluid", ["lichid frana"]],
       ["coolant", ["lichid antigel"]],
       ["timing_kit", ["kit distributie"]],
+["fuel_profile", ["motorizare"]],
       ["current_km", ["kilometri actuali"]],
     ]);
     if (consumableField) return `${domain}:field:${consumableField}`;
@@ -1052,6 +1210,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     return this._normalize(this._friendly(entity)).includes("kilometri actuali");
   }
 
+  _isFuelProfileEditField(entity) {
+    return this._normalize(this._friendly(entity)).includes("motorizare");
+  }
+
   _isMaintenanceEditField(entity, terms) {
     const name = this._normalize(this._friendly(entity));
     const isTerm = terms.some((term) => name.includes(this._normalize(term)));
@@ -1087,7 +1249,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const name = this._normalize(this._friendly(entity));
     const order = [
       "kilometri actuali",
-      "ultima data", "ultimul schimb km", "interval km", "interval zile", "cost estimat",
+      "motorizare", "ultima data", "ultimul schimb km", "interval km", "interval zile", "cost estimat",
       "incepe la", "expira la", "asigurator", "numar polita", "acoperire", "statie", "numar raport", "observatii",
       "cantitate ulei", "ulei motor", "filtru ulei", "filtru aer", "filtru combustibil", "filtru habitaclu", "ulei cutie", "lichid frana", "lichid antigel", "kit distributie",
     ];
@@ -1098,10 +1260,19 @@ class CarManagerRomaniaCard extends HTMLElement {
   _renderField(entity) {
     const domain = entity.entityId.split(".")[0];
     const value = entity.stateObj.state === "unknown" || entity.stateObj.state === "unavailable" ? "" : entity.stateObj.state;
+    const label = this._fieldLabel(this._friendly(entity));
+    if (this._normalize(label).includes("motorizare")) {
+      return `
+        <label class="cmr-field">
+          <span>${this._escape(label)}</span>
+          <select data-entity="${entity.entityId}" data-domain="${domain}">${this._fuelProfileOptions(value || "diesel")}</select>
+        </label>
+      `;
+    }
     const type = domain === "number" ? "number" : domain === "date" ? "date" : "text";
     return `
       <label class="cmr-field">
-        <span>${this._escape(this._fieldLabel(this._friendly(entity)))}</span>
+        <span>${this._escape(label)}</span>
         <input type="${type}" value="${this._escape(value)}" data-entity="${entity.entityId}" data-domain="${domain}">
       </label>
     `;
@@ -1152,7 +1323,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     this.querySelectorAll('[data-action="set-tab"]').forEach((button) => {
       button.addEventListener("click", () => {
         const tab = button.dataset.tab || "vehicles";
-        this._activeTab = tab === "costs" ? "costs" : "vehicles";
+        this._activeTab = ["costs", "fuel"].includes(tab) ? tab : "vehicles";
         this.render();
       });
     });
@@ -1209,6 +1380,26 @@ class CarManagerRomaniaCard extends HTMLElement {
         }
         this.render();
       });
+    });
+
+    this.querySelectorAll('button[data-action="toggle-fuel-form"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.vehicle;
+        if (!key) return;
+        if (this._fuelFormOpen.has(key)) this._fuelFormOpen.delete(key); else this._fuelFormOpen.add(key);
+        this.render();
+      });
+    });
+
+    this.querySelectorAll('form[data-form="fuel-receipt"]').forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._captureFuelReceiptDraft(form);
+        this._inputEditing = false;
+        this._addFuelReceipt(form);
+      });
+      form.addEventListener("input", () => this._captureFuelReceiptDraft(form));
+      form.addEventListener("change", () => this._captureFuelReceiptDraft(form));
     });
 
     this.querySelectorAll('form[data-form="service-record"]').forEach((form) => {
@@ -1315,7 +1506,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       });
     });
 
-    this.querySelectorAll("input[data-entity]").forEach((input) => {
+    this.querySelectorAll("input[data-entity], select[data-entity]").forEach((input) => {
       input.addEventListener("change", (event) => this._saveField(event.currentTarget));
     });
 
@@ -1379,6 +1570,55 @@ class CarManagerRomaniaCard extends HTMLElement {
       invoice_number: (data.get("invoice_number") || "").toString(),
       notes: (data.get("notes") || "").toString(),
     };
+  }
+
+
+  _captureFuelReceiptDraft(form) {
+    if (!form) return;
+    const vehicleKey = form.dataset.vehicle;
+    const data = new FormData(form);
+    this._fuelReceiptDrafts[vehicleKey] = {
+      date: (data.get("date") || "").toString(),
+      km: (data.get("km") || "").toString(),
+      fuel_type: (data.get("fuel_type") || "").toString(),
+      quantity: (data.get("quantity") || "").toString(),
+      total_cost: (data.get("total_cost") || "").toString(),
+      full_tank: data.get("full_tank") === "on",
+      station: (data.get("station") || "").toString(),
+      notes: (data.get("notes") || "").toString(),
+    };
+  }
+
+  async _addFuelReceipt(form) {
+    if (!this._hass || !form) return;
+    const vehicleKey = form.dataset.vehicle;
+    if (this._fuelReceiptBusy) return;
+    const data = new FormData(form);
+    const payload = {
+      vehicle_id: form.dataset.vehicleRef || vehicleKey,
+      date: (data.get("date") || "").toString(),
+      km: Math.round(Number(data.get("km") || 0)),
+      fuel_type: (data.get("fuel_type") || "").toString(),
+      quantity: Number(data.get("quantity") || 0),
+      total_cost: Number(data.get("total_cost") || 0),
+      full_tank: data.get("full_tank") === "on",
+      station: (data.get("station") || "").toString().trim(),
+      notes: (data.get("notes") || "").toString().trim(),
+    };
+    this._fuelReceiptBusy = vehicleKey;
+    this._fuelReceiptMessage[vehicleKey] = "";
+    this.render();
+    try {
+      await this._hass.callService("car_manager_romania", "add_fuel_receipt", payload);
+      this._fuelReceiptMessage[vehicleKey] = "Bonul a fost salvat. Integrarea se reîncarcă pentru actualizare.";
+      this._fuelReceiptDrafts[vehicleKey] = {};
+      this._fuelFormOpen.delete(vehicleKey);
+    } catch (error) {
+      this._fuelReceiptMessage[vehicleKey] = error?.message || "Nu am putut salva bonul.";
+    } finally {
+      this._fuelReceiptBusy = null;
+      this.render();
+    }
   }
 
   async _runBackupAction(action) {
@@ -2099,6 +2339,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-row.is-good .cmr-row-value, .cmr-row.is-warn .cmr-row-value, .cmr-row.is-bad .cmr-row-value { color: var(--cmr-accent); }
       .cmr-costs-panel { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
       .cmr-cost-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+      .cmr-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; font-weight: 800; }
       .cmr-cost-card { padding: 12px; border-radius: 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); }
       .cmr-cost-title { color: var(--secondary-text-color); font-size: 12px; font-weight: 900; }
       .cmr-cost-value { margin-top: 6px; font-size: 20px; font-weight: 950; letter-spacing: -0.02em; }

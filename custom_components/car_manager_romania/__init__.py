@@ -25,6 +25,7 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_KM,
+    CONF_FUEL_PROFILE,
     CONF_LICENSE_PLATE,
     CONF_NAME,
     CONF_REMOVED,
@@ -51,10 +52,14 @@ from .const import (
     SERVICE_IMPORT_DATA,
     SERVICE_SET_LEGAL_OPTION,
     SERVICE_CLEANUP_ORPHAN_ENTITIES,
+    SERVICE_ADD_FUEL_RECEIPT,
+    SERVICE_DELETE_FUEL_RECEIPT,
     LEGAL_OPTION_IGNORED,
     LEGAL_TYPE_CASCO,
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_VERSION_NOTIFICATIONS,
+    FUEL_TYPES,
+    FUEL_TYPES_BY_PROFILE,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_LAST_KM,
     LEGAL_COST_TYPES,
@@ -66,7 +71,7 @@ from .maintenance import get_maintenance_value, normalize_vehicles, set_maintena
 from .legal import set_legal_ignored
 from .rovinieta.api import ERovinietaApiClient
 from .rovinieta.coordinator import CarManagerRovinietaCoordinator
-from .storage import CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
+from .storage import CarManagerFuelReceiptStore, CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -83,6 +88,7 @@ class CarManagerRuntimeData:
     all_vehicles: list[dict[str, Any]]
     vehicle_store: CarManagerVehicleStore
     service_history_store: CarManagerServiceHistoryStore
+    fuel_receipt_store: CarManagerFuelReceiptStore
     rovinieta_coordinator: CarManagerRovinietaCoordinator | None = None
 
 
@@ -415,6 +421,29 @@ CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA = vol.Schema(
 )
 
 
+ADD_FUEL_RECEIPT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Optional("date"): str,
+        vol.Required(CONF_KM): vol.Coerce(int),
+        vol.Required("fuel_type"): str,
+        vol.Required("quantity"): vol.Coerce(float),
+        vol.Required("total_cost"): vol.Coerce(float),
+        vol.Optional("full_tank", default=True): bool,
+        vol.Optional("station", default=""): str,
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+DELETE_FUEL_RECEIPT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("receipt_id"): str,
+    }
+)
+
+
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
 
@@ -435,6 +464,7 @@ def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
 
     from .const import (
         CASCO_TEXT_FIELDS,
+        CONF_FUEL_PROFILE,
         CONSUMABLE_TYPES,
         COST_AMOUNT,
         ITP_TEXT_FIELDS,
@@ -489,6 +519,9 @@ def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
                 f"{entry_id}_{vehicle_id}_upcoming_expenses_30_days",
                 f"{entry_id}_{vehicle_id}_upcoming_expenses_90_days",
                 f"{entry_id}_{vehicle_id}_annual_costs_current_year",
+                f"{entry_id}_{vehicle_id}_fuel_costs_current_year",
+                f"{entry_id}_{vehicle_id}_fuel_costs_current_month",
+                f"{entry_id}_{vehicle_id}_fuel_average_consumption",
             }
         )
 
@@ -531,6 +564,8 @@ def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
 
         for legal_type in LEGAL_COST_TYPES:
             expected.add(f"{entry_id}_{vehicle_id}_legal_{legal_type}_cost")
+
+        expected.add(f"{entry_id}_{vehicle_id}_{CONF_FUEL_PROFILE}")
 
         for consumable_key in CONSUMABLE_TYPES:
             expected.add(f"{entry_id}_{vehicle_id}_consumable_{consumable_key}")
@@ -843,6 +878,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_VALIDATE_BACKUP)
         and hass.services.has_service(DOMAIN, SERVICE_IMPORT_DATA)
         and hass.services.has_service(DOMAIN, SERVICE_SET_LEGAL_OPTION)
+        and hass.services.has_service(DOMAIN, SERVICE_CLEANUP_ORPHAN_ENTITIES)
+        and hass.services.has_service(DOMAIN, SERVICE_ADD_FUEL_RECEIPT)
+        and hass.services.has_service(DOMAIN, SERVICE_DELETE_FUEL_RECEIPT)
     ):
         return
 
@@ -1032,6 +1070,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
+        fuel_store = entry.runtime_data.fuel_receipt_store
 
         vehicle_id = str(call.data[CONF_VEHICLE_ID]).strip()
         if not vehicle_id:
@@ -1137,6 +1176,107 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             record_type,
             vehicle_id,
         )
+
+
+    async def async_add_fuel_receipt(call: ServiceCall) -> None:
+        """Add a fuel receipt from a Home Assistant service call."""
+
+        from .fuel import allowed_fuel_types, enrich_fuel_receipt, is_liquid_fuel
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_store = entry.runtime_data.vehicle_store
+        fuel_store = entry.runtime_data.fuel_receipt_store
+
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        if not vehicle_ref:
+            raise HomeAssistantError("Autovehiculul este obligatoriu.")
+
+        receipt_date = str(call.data.get("date") or dt_date.today().isoformat()).strip()
+        try:
+            dt_date.fromisoformat(receipt_date)
+        except ValueError as err:
+            raise HomeAssistantError("Data alimentării trebuie să fie în format YYYY-MM-DD.") from err
+
+        km_value = int(call.data.get(CONF_KM, 0) or 0)
+        if km_value <= 0:
+            raise HomeAssistantError("Kilometrajul din bord este obligatoriu și trebuie să fie mai mare decât 0.")
+
+        fuel_type = str(call.data.get("fuel_type", "")).strip()
+        quantity = float(call.data.get("quantity", 0) or 0)
+        total_cost = float(call.data.get("total_cost", 0) or 0)
+        if quantity <= 0:
+            raise HomeAssistantError("Numărul de litri/kWh trebuie să fie mai mare decât 0.")
+        if total_cost <= 0:
+            raise HomeAssistantError("Valoarea bonului trebuie să fie mai mare decât 0.")
+
+        stored_vehicles = await vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(
+            CONF_VEHICLES,
+            entry.data.get(CONF_VEHICLES, []),
+        )
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError(
+                "Autovehiculul selectat nu a fost găsit în Car Manager România. "
+                "Poți folosi ID-ul intern, VIN-ul, numărul de înmatriculare sau numele mașinii."
+            )
+
+        allowed_types = allowed_fuel_types(found_vehicle)
+        if fuel_type not in allowed_types:
+            raise HomeAssistantError("Tipul de combustibil nu este permis pentru motorizarea configurată a autovehiculului.")
+
+        vehicle_id = _vehicle_internal_id(found_vehicle)
+        full_tank = bool(call.data.get("full_tank", True)) if is_liquid_fuel(fuel_type) else False
+        receipt = enrich_fuel_receipt(
+            {
+                "receipt_id": f"fuel_{uuid4().hex[:12]}",
+                CONF_VEHICLE_ID: vehicle_id,
+                "date": receipt_date,
+                CONF_KM: km_value,
+                "fuel_type": fuel_type,
+                "quantity": round(quantity, 3),
+                "total_cost": round(total_cost, 2),
+                "full_tank": full_tank,
+                "station": str(call.data.get("station", "")).strip(),
+                "notes": str(call.data.get("notes", "")).strip(),
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+        await fuel_store.async_add_receipt(receipt)
+
+        # Kilometrajul actual al mașinii crește automat dacă bonul este mai nou ca valoare de bord.
+        changed_vehicle = False
+        for vehicle in vehicles:
+            if _vehicle_internal_id(vehicle) == vehicle_id and int(vehicle.get(CONF_KM, 0) or 0) < km_value:
+                vehicle[CONF_KM] = km_value
+                changed_vehicle = True
+                break
+
+        if changed_vehicle:
+            normalized_vehicles, _ = normalize_vehicles(vehicles)
+            active_vehicles = _active_vehicles(normalized_vehicles)
+            await vehicle_store.async_save_vehicles(normalized_vehicles)
+            entry.runtime_data.vehicles = active_vehicles
+            entry.runtime_data.all_vehicles = normalized_vehicles
+            dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
+
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_delete_fuel_receipt(call: ServiceCall) -> None:
+        """Delete a fuel receipt."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        receipt_id = str(call.data["receipt_id"]).strip()
+        if not receipt_id:
+            raise HomeAssistantError("ID-ul bonului este obligatoriu.")
+
+        deleted = await entry.runtime_data.fuel_receipt_store.async_delete_receipt(receipt_id)
+        if not deleted:
+            raise HomeAssistantError("Bonul de combustibil nu a fost găsit.")
+
+        await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_restore_service_record(call: ServiceCall) -> None:
         """Restore maintenance values changed by one service history record."""
@@ -1267,6 +1407,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
+        fuel_store = entry.runtime_data.fuel_receipt_store
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
         if not filename:
@@ -1284,6 +1425,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
         normalized_vehicles, _ = normalize_vehicles(list(vehicles))
         service_history = await history_store.async_get_records()
+        fuel_receipts = await fuel_store.async_get_receipts()
 
         notification_data: dict[str, Any] = {}
         try:
@@ -1310,6 +1452,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             },
             "vehicles": normalized_vehicles,
             "service_history": service_history,
+            "fuel_receipts": fuel_receipts,
             "notification_state": notification_data,
         }
 
@@ -1327,7 +1470,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             hass,
             "Exportul Car Manager România a fost salvat local.\n\n"
             f"Fișier: `{backup_path}`\n\n"
-            "Fișierul conține datele autovehiculelor, istoricul intervențiilor și starea notificărilor. "
+            "Fișierul conține datele autovehiculelor, istoricul intervențiilor, bonurile de combustibil și starea notificărilor. "
             "Păstrează-l în siguranță, deoarece poate include VIN, numere de înmatriculare și observații de service.",
             title="Car Manager România - export date finalizat",
             notification_id="car_manager_romania_export_data",
@@ -1391,6 +1534,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not isinstance(service_history, list):
             errors.append("Câmpul service_history lipsește sau nu este listă.")
             service_history = []
+
+        fuel_receipts = backup_data.get("fuel_receipts", [])
+        if not isinstance(fuel_receipts, list):
+            warnings.append("Câmpul fuel_receipts nu este listă și va fi ignorat la import.")
+            fuel_receipts = []
 
         notification_state = backup_data.get("notification_state")
         if notification_state is not None and not isinstance(notification_state, dict):
@@ -1518,6 +1666,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
         history_store = entry.runtime_data.service_history_store
+        fuel_store = entry.runtime_data.fuel_receipt_store
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
         if not filename:
@@ -1560,10 +1709,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
         backup_vehicles_raw = backup_data.get("vehicles")
         backup_history_raw = backup_data.get("service_history")
+        backup_fuel_raw = backup_data.get("fuel_receipts", [])
         if not isinstance(backup_vehicles_raw, list):
             raise HomeAssistantError("Câmpul vehicles lipsește sau nu este listă.")
         if not isinstance(backup_history_raw, list):
             raise HomeAssistantError("Câmpul service_history lipsește sau nu este listă.")
+        if not isinstance(backup_fuel_raw, list):
+            backup_fuel_raw = []
 
         backup_vehicles, _ = normalize_vehicles([
             deepcopy(vehicle)
@@ -1575,6 +1727,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             for record in backup_history_raw
             if isinstance(record, dict)
         ]
+        backup_fuel = [
+            deepcopy(receipt)
+            for receipt in backup_fuel_raw
+            if isinstance(receipt, dict)
+        ]
 
         current_stored_vehicles = await vehicle_store.async_get_vehicles()
         option_vehicles = entry.options.get(
@@ -1584,6 +1741,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         current_vehicles = merge_vehicle_sources(list(option_vehicles), current_stored_vehicles)
         current_vehicles, _ = normalize_vehicles(current_vehicles)
         current_history = await history_store.async_get_records()
+        current_fuel = await fuel_store.async_get_receipts()
 
         merged_vehicles = [deepcopy(vehicle) for vehicle in current_vehicles if isinstance(vehicle, dict)]
         vehicle_index_by_id = {
@@ -1643,6 +1801,29 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 history_index_by_id[record_id] = len(merged_history) - 1
                 history_added += 1
 
+
+        merged_fuel = [deepcopy(receipt) for receipt in current_fuel if isinstance(receipt, dict)]
+        fuel_index_by_id = {
+            str(receipt.get("receipt_id", "")).strip(): index
+            for index, receipt in enumerate(merged_fuel)
+            if isinstance(receipt, dict) and str(receipt.get("receipt_id", "")).strip()
+        }
+        fuel_added = 0
+        fuel_updated = 0
+        fuel_skipped = 0
+        for receipt in backup_fuel:
+            receipt_id = str(receipt.get("receipt_id", "")).strip()
+            if not receipt_id:
+                fuel_skipped += 1
+                continue
+            if receipt_id in fuel_index_by_id:
+                merged_fuel[fuel_index_by_id[receipt_id]].update(deepcopy(receipt))
+                fuel_updated += 1
+            else:
+                merged_fuel.append(deepcopy(receipt))
+                fuel_index_by_id[receipt_id] = len(merged_fuel) - 1
+                fuel_added += 1
+
         notification_merged = False
         notification_state = backup_data.get("notification_state")
         if isinstance(notification_state, dict) and isinstance(notification_state.get("notified"), dict):
@@ -1651,6 +1832,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not dry_run:
             await vehicle_store.async_save_vehicles(merged_vehicles)
             await history_store.async_save_records(merged_history)
+            await fuel_store.async_save_receipts(merged_fuel)
 
             if notification_merged and isinstance(notification_state, dict):
                 try:
@@ -1904,6 +2086,21 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             async_cleanup_orphan_entities,
             schema=CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA,
         )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_ADD_FUEL_RECEIPT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_FUEL_RECEIPT,
+            async_add_fuel_receipt,
+            schema=ADD_FUEL_RECEIPT_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_FUEL_RECEIPT):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DELETE_FUEL_RECEIPT,
+            async_delete_fuel_receipt,
+            schema=DELETE_FUEL_RECEIPT_SCHEMA,
+        )
     hass.data[DOMAIN]["services_registered"] = True
 
 async def async_setup_entry(
@@ -1914,7 +2111,9 @@ async def async_setup_entry(
 
     vehicle_store = CarManagerVehicleStore(hass)
     service_history_store = CarManagerServiceHistoryStore(hass)
+    fuel_receipt_store = CarManagerFuelReceiptStore(hass)
     await service_history_store.async_load()
+    await fuel_receipt_store.async_load()
     stored_vehicles = await vehicle_store.async_get_vehicles()
 
     option_vehicles = entry.options.get(
@@ -1936,6 +2135,7 @@ async def async_setup_entry(
         all_vehicles=normalized_vehicles,
         vehicle_store=vehicle_store,
         service_history_store=service_history_store,
+        fuel_receipt_store=fuel_receipt_store,
         rovinieta_coordinator=rovinieta_coordinator,
     )
 

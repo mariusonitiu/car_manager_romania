@@ -54,6 +54,7 @@ from .maintenance import (
     maintenance_status,
 )
 from .costs import annual_history_total, expense_total, upcoming_expense_items
+from .fuel import enriched_fuel_receipts_for_vehicle, fuel_consumption_intervals, fuel_current_month_total, fuel_current_year_total, latest_average_consumption
 from .rovinieta.sensor import async_setup_rovinieta_sensors
 
 
@@ -75,6 +76,9 @@ async def async_setup_entry(
         entities.append(CarVehicleUpcomingExpensesSensor(entry, vehicle, 30))
         entities.append(CarVehicleUpcomingExpensesSensor(entry, vehicle, 90))
         entities.append(CarVehicleAnnualCostsSensor(entry, vehicle))
+        entities.append(CarVehicleFuelAnnualCostSensor(entry, vehicle))
+        entities.append(CarVehicleFuelMonthlyCostSensor(entry, vehicle))
+        entities.append(CarVehicleFuelAverageConsumptionSensor(entry, vehicle))
 
         for maintenance_type, label in MAINTENANCE_TYPES.items():
             if maintenance_type not in MAINTENANCE_TIME_ONLY_TYPES:
@@ -339,6 +343,8 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
 
         vehicle_records.sort(key=lambda item: str(item.get("date", "")), reverse=True)
         attributes["service_history"] = vehicle_records[:10]
+        attributes["fuel_receipts"] = enriched_fuel_receipts_for_vehicle(self._entry, self._vehicle)[:20]
+        attributes["fuel_consumption_intervals"] = fuel_consumption_intervals(self._entry, self._vehicle)[:10]
         attributes.update(_vehicle_overall_summary(self._vehicle))
 
         return attributes
@@ -431,6 +437,69 @@ class CarVehicleAnnualCostsSensor(CarVehicleBaseSensor):
             "year": dt_date.today().year,
             "currency": "RON",
         }
+
+
+class CarVehicleFuelAnnualCostSensor(CarVehicleBaseSensor):
+    """Current-year fuel cost sensor."""
+
+    _attr_name = "Combustibil anul curent"
+    _attr_icon = "mdi:gas-station"
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(self, entry: CarManagerConfigEntry, vehicle: dict[str, Any]) -> None:
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_fuel_costs_current_year"
+
+    @property
+    def native_value(self) -> float:
+        return fuel_current_year_total(self._entry, self._vehicle)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from datetime import date as dt_date
+        return {"year": dt_date.today().year, "currency": "RON"}
+
+
+class CarVehicleFuelMonthlyCostSensor(CarVehicleBaseSensor):
+    """Current-month fuel cost sensor."""
+
+    _attr_name = "Combustibil luna curentă"
+    _attr_icon = "mdi:gas-station-outline"
+    _attr_native_unit_of_measurement = "RON"
+
+    def __init__(self, entry: CarManagerConfigEntry, vehicle: dict[str, Any]) -> None:
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_fuel_costs_current_month"
+
+    @property
+    def native_value(self) -> float:
+        return fuel_current_month_total(self._entry, self._vehicle)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from datetime import date as dt_date
+        today = dt_date.today()
+        return {"year": today.year, "month": today.month, "currency": "RON"}
+
+
+class CarVehicleFuelAverageConsumptionSensor(CarVehicleBaseSensor):
+    """Latest valid fuel consumption sensor."""
+
+    _attr_name = "Consum mediu combustibil"
+    _attr_icon = "mdi:chart-line"
+    _attr_native_unit_of_measurement = "L/100 km"
+
+    def __init__(self, entry: CarManagerConfigEntry, vehicle: dict[str, Any]) -> None:
+        super().__init__(entry, vehicle)
+        self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_fuel_average_consumption"
+
+    @property
+    def native_value(self) -> float | None:
+        return latest_average_consumption(self._entry, self._vehicle)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"intervals": fuel_consumption_intervals(self._entry, self._vehicle)[:10]}
 
 
 def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
