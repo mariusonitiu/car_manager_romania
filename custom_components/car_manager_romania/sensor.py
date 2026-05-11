@@ -30,6 +30,7 @@ from .const import (
     CONF_REMOVED,
     CONF_VEHICLE_ID,
     CONF_VIN,
+    DATE_VERIFICARE_LICENTA,
     DOMAIN,
     MAINTENANCE_INTERVAL_DAYS,
     MAINTENANCE_INTERVAL_KM,
@@ -41,6 +42,7 @@ from .const import (
     MAINTENANCE_STATUS_OK,
     MAINTENANCE_STATUS_OVERDUE,
     MAINTENANCE_STATUS_SOON,
+    SIGNAL_LICENSE_UPDATED,
     SIGNAL_VEHICLES_UPDATED,
     VERSION,
 )
@@ -57,7 +59,9 @@ from .costs import annual_history_total, expense_total, upcoming_expense_items
 from .fuel import enriched_fuel_receipts_for_vehicle, fuel_consumption_intervals, fuel_current_month_total, fuel_current_year_total, latest_average_consumption
 from .tire import tire_sets_for_vehicle, current_year_tire_cost_total
 from .equipment import equipment_items_for_vehicle, current_year_equipment_cost_total
+from .battery import battery_items_for_vehicle, current_battery_for_vehicle, current_year_battery_cost_total
 from .rovinieta.sensor import async_setup_rovinieta_sensors
+from .license import async_obtine_licenta_globala, mascheaza_cheia_licenta
 
 
 async def async_setup_entry(
@@ -70,6 +74,13 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [
         CarManagerStatusSensor(entry),
         CarManagerVehicleCountSensor(entry),
+        CarManagerLicenseSensor(entry, "status", "Status licență"),
+        CarManagerLicenseSensor(entry, "plan", "Plan licență"),
+        CarManagerLicenseSensor(entry, "expires_at", "Valabilă până la"),
+        CarManagerLicenseSensor(entry, "checked_at", "Ultima verificare licență"),
+        CarManagerLicenseSensor(entry, "utilizator", "Cont licență"),
+        CarManagerLicenseSensor(entry, "masked_key", "Cod licență mascat"),
+        CarManagerLicenseSensor(entry, "message", "Mesaj licență"),
     ]
 
     for vehicle in entry.runtime_data.vehicles:
@@ -212,6 +223,81 @@ class CarManagerVehicleCountSensor(CarManagerBaseSensor):
         return len(self._entry.runtime_data.vehicles)
 
 
+class CarManagerLicenseSensor(CarManagerBaseSensor):
+    """Diagnostic sensor exposing the globally stored license state."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:shield-key-outline"
+
+    _OBJECT_IDS = {
+        "status": "status_licenta",
+        "plan": "plan_licenta",
+        "expires_at": "valabila_pana_la",
+        "checked_at": "ultima_verificare_licenta",
+        "utilizator": "cont_licenta",
+        "masked_key": "cod_licenta_mascat",
+        "message": "mesaj_licenta",
+    }
+
+    def __init__(self, entry: CarManagerConfigEntry, key: str, name: str) -> None:
+        """Initialize license sensor."""
+
+        super().__init__(entry)
+        self._key = key
+        self._attr_name = name
+        self._attr_unique_id = f"{entry.entry_id}_license_v2_{key}"
+        object_id = self._OBJECT_IDS.get(key, key)
+        self._attr_suggested_object_id = f"{DOMAIN}_{object_id}"
+        self._attr_native_value = "-"
+
+    async def async_added_to_hass(self) -> None:
+        """Load initial value and listen for license changes."""
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_LICENSE_UPDATED,
+                self._handle_license_updated,
+            )
+        )
+        await self._async_refresh_value()
+
+    async def _handle_license_updated(self) -> None:
+        """Refresh state after the license storage changes."""
+
+        await self._async_refresh_value()
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:
+        """Refresh value from storage."""
+
+        await self._async_refresh_value()
+
+    async def _async_refresh_value(self) -> None:
+        """Refresh native value from the license store."""
+
+        storage = await async_obtine_licenta_globala(self.hass)
+        storage = storage if isinstance(storage, dict) else {}
+        info = storage.get(DATE_VERIFICARE_LICENTA)
+        info = info if isinstance(info, dict) else {}
+
+        if self._key == "utilizator":
+            self._attr_native_value = str(storage.get("utilizator", "")).strip() or "-"
+            return
+
+        if self._key == "masked_key":
+            self._attr_native_value = mascheaza_cheia_licenta(str(storage.get("cheie_licenta", "")).strip()) or "-"
+            return
+
+        if self._key == "message":
+            value = info.get("message")
+            self._attr_native_value = str(value).strip() if value not in (None, "") else "-"
+            return
+
+        value = info.get(self._key)
+        self._attr_native_value = str(value).strip() if value not in (None, "") else "-"
+
+
 class CarVehicleBaseSensor(SensorEntity):
     """Base vehicle sensor."""
 
@@ -351,6 +437,9 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         attributes["tire_costs_current_year"] = current_year_tire_cost_total(self._entry, self._vehicle)
         attributes["equipment_items"] = equipment_items_for_vehicle(self._entry, self._vehicle)[:30]
         attributes["equipment_costs_current_year"] = current_year_equipment_cost_total(self._entry, self._vehicle)
+        attributes["battery_items"] = battery_items_for_vehicle(self._entry, self._vehicle)[:10]
+        attributes["current_battery"] = current_battery_for_vehicle(self._entry, self._vehicle)
+        attributes["battery_costs_current_year"] = current_year_battery_cost_total(self._entry, self._vehicle)
         attributes.update(_vehicle_overall_summary(self._vehicle))
 
         return attributes

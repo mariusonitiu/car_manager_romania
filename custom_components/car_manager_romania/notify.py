@@ -26,6 +26,7 @@ from .const import (
 )
 from .costs import expense_total, upcoming_expense_items
 from .equipment import equipment_issues_for_vehicle
+from .battery import battery_issues_for_vehicle
 from .legal import legal_days_remaining, legal_status, is_legal_ignored
 from .maintenance import maintenance_remaining_values, maintenance_status
 from .rovinieta.models import VehicleData
@@ -280,6 +281,10 @@ def _build_vehicle_issue_summary(
     equipment_critical, equipment_warning = equipment_issues_for_vehicle(entry, vehicle)
     critical_items.extend(equipment_critical)
     warning_items.extend(equipment_warning)
+
+    battery_critical, battery_warning = battery_issues_for_vehicle(entry, vehicle)
+    critical_items.extend(battery_critical)
+    warning_items.extend(battery_warning)
 
     rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle)
     if rovinieta_vehicle is not None:
