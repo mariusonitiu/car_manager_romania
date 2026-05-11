@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,9 +62,13 @@ from .const import (
     SERVICE_ADD_EQUIPMENT_ITEM,
     SERVICE_UPDATE_EQUIPMENT_ITEM,
     SERVICE_DELETE_EQUIPMENT_ITEM,
+    SERVICE_ADD_BATTERY,
+    SERVICE_UPDATE_BATTERY,
+    SERVICE_DELETE_BATTERY,
     TIRE_TYPES,
     TIRE_MOUNT_TYPES,
     EQUIPMENT_TYPES,
+    BATTERY_TYPES,
     LEGAL_OPTION_IGNORED,
     LEGAL_TYPE_CASCO,
     STORAGE_KEY_NOTIFICATIONS,
@@ -75,6 +80,7 @@ from .const import (
     LEGAL_COST_TYPES,
     MAINTENANCE_TYPES,
     SIGNAL_VEHICLES_UPDATED,
+    SIGNAL_LICENSE_UPDATED,
     VERSION,
 )
 from .maintenance import get_maintenance_value, normalize_vehicles, set_maintenance_value
@@ -84,6 +90,7 @@ from .rovinieta.coordinator import CarManagerRovinietaCoordinator
 from .storage import CarManagerFuelReceiptStore, CarManagerServiceHistoryStore, CarManagerVehicleStore, merge_vehicle_sources
 from .tire import CarManagerTireSetStore, normalize_tire_set
 from .equipment import CarManagerEquipmentItemStore, normalize_equipment_item
+from .battery import CarManagerBatteryStore, normalize_battery_item
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +110,7 @@ class CarManagerRuntimeData:
     fuel_receipt_store: CarManagerFuelReceiptStore
     tire_set_store: CarManagerTireSetStore
     equipment_item_store: CarManagerEquipmentItemStore
+    battery_store: CarManagerBatteryStore
     rovinieta_coordinator: CarManagerRovinietaCoordinator | None = None
 
 
@@ -567,6 +575,52 @@ DELETE_EQUIPMENT_ITEM_SCHEMA = vol.Schema(
     }
 )
 
+ADD_BATTERY_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Optional("installed", default=True): bool,
+        vol.Optional("brand_model", default=""): str,
+        vol.Optional("battery_type", default="lead_acid"): vol.In(list(BATTERY_TYPES.keys())),
+        vol.Optional("capacity_ah", default=0): vol.Coerce(int),
+        vol.Optional("cca", default=0): vol.Coerce(int),
+        vol.Optional("polarity", default=""): str,
+        vol.Optional("size", default=""): str,
+        vol.Optional("install_date", default=""): str,
+        vol.Optional("install_km", default=0): vol.Coerce(int),
+        vol.Optional("warranty_until", default=""): str,
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+UPDATE_BATTERY_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("battery_id"): str,
+        vol.Required(CONF_VEHICLE_ID): str,
+        vol.Optional("installed", default=True): bool,
+        vol.Optional("brand_model", default=""): str,
+        vol.Optional("battery_type", default="lead_acid"): vol.In(list(BATTERY_TYPES.keys())),
+        vol.Optional("capacity_ah", default=0): vol.Coerce(int),
+        vol.Optional("cca", default=0): vol.Coerce(int),
+        vol.Optional("polarity", default=""): str,
+        vol.Optional("size", default=""): str,
+        vol.Optional("install_date", default=""): str,
+        vol.Optional("install_km", default=0): vol.Coerce(int),
+        vol.Optional("warranty_until", default=""): str,
+        vol.Optional("cost", default=0): vol.Coerce(float),
+        vol.Optional("notes", default=""): str,
+    }
+)
+
+DELETE_BATTERY_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
+        vol.Required("battery_id"): str,
+    }
+)
+
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return vehicles that are not marked as removed."""
@@ -612,6 +666,20 @@ def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
     expected: set[str] = {
         f"{entry_id}_status",
         f"{entry_id}_vehicle_count",
+        # Entități globale pentru licențiere.
+        # Sunt create pe hub, nu pe autovehicule, deci trebuie păstrate explicit
+        # de mecanismul de cleanup al registry-ului. Fără aceste unique_id-uri,
+        # cleanup-ul automat le șterge imediat după ce platformele le creează.
+        f"{entry_id}_license_v2_status",
+        f"{entry_id}_license_v2_plan",
+        f"{entry_id}_license_v2_expires_at",
+        f"{entry_id}_license_v2_checked_at",
+        f"{entry_id}_license_v2_utilizator",
+        f"{entry_id}_license_v2_masked_key",
+        f"{entry_id}_license_v2_message",
+        f"{entry_id}_license_v2_key_text",
+        f"{entry_id}_license_v2_apply",
+        f"{entry_id}_license_v2_refresh",
     }
 
     if entry.runtime_data.rovinieta_coordinator is not None:
@@ -1201,6 +1269,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         fuel_store = entry.runtime_data.fuel_receipt_store
         tire_store = entry.runtime_data.tire_set_store
         equipment_store = entry.runtime_data.equipment_item_store
+        battery_store = entry.runtime_data.battery_store
 
         vehicle_id = str(call.data[CONF_VEHICLE_ID]).strip()
         if not vehicle_id:
@@ -1638,6 +1707,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         fuel_store = entry.runtime_data.fuel_receipt_store
         tire_store = entry.runtime_data.tire_set_store
         equipment_store = entry.runtime_data.equipment_item_store
+        battery_store = entry.runtime_data.battery_store
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
         if not filename:
@@ -1658,6 +1728,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         fuel_receipts = await fuel_store.async_get_receipts()
         tire_sets = await entry.runtime_data.tire_set_store.async_get_sets()
         equipment_items = await entry.runtime_data.equipment_item_store.async_get_items()
+        battery_items = await entry.runtime_data.battery_store.async_get_items()
 
         notification_data: dict[str, Any] = {}
         try:
@@ -1687,6 +1758,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             "fuel_receipts": fuel_receipts,
             "tire_sets": tire_sets,
             "equipment_items": equipment_items,
+            "battery_items": battery_items,
             "notification_state": notification_data,
         }
 
@@ -1704,7 +1776,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             hass,
             "Exportul Car Manager România a fost salvat local.\n\n"
             f"Fișier: `{backup_path}`\n\n"
-            "Fișierul conține datele autovehiculelor, istoricul intervențiilor, bonurile de combustibil, seturile de anvelope, echipamentele auto și starea notificărilor. "
+            "Fișierul conține datele autovehiculelor, istoricul intervențiilor, bonurile de combustibil, seturile de anvelope, echipamentele auto, bateriile și starea notificărilor. "
             "Păstrează-l în siguranță, deoarece poate include VIN, numere de înmatriculare și observații de service.",
             title="Car Manager România - export date finalizat",
             notification_id="car_manager_romania_export_data",
@@ -1783,6 +1855,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         if not isinstance(equipment_items, list):
             warnings.append("Câmpul equipment_items nu este listă și va fi ignorat la import.")
             equipment_items = []
+
+        battery_items = backup_data.get("battery_items", [])
+        if not isinstance(battery_items, list):
+            warnings.append("Câmpul battery_items nu este listă și va fi ignorat la import.")
+            battery_items = []
 
         notification_state = backup_data.get("notification_state")
         if notification_state is not None and not isinstance(notification_state, dict):
@@ -1885,6 +1962,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 f"- Bonuri combustibil: {len(fuel_receipts)}",
                 f"- Seturi anvelope: {len(tire_sets)}",
                 f"- Echipamente auto: {len(equipment_items)}",
+                f"- Baterii auto: {len(battery_items)}",
             ]
             if warnings:
                 summary_lines.extend(["", "Avertizări:"])
@@ -1961,6 +2039,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         backup_fuel_raw = backup_data.get("fuel_receipts", [])
         backup_tire_raw = backup_data.get("tire_sets", [])
         backup_equipment_raw = backup_data.get("equipment_items", [])
+        backup_battery_raw = backup_data.get("battery_items", [])
         if not isinstance(backup_vehicles_raw, list):
             raise HomeAssistantError("Câmpul vehicles lipsește sau nu este listă.")
         if not isinstance(backup_history_raw, list):
@@ -1971,6 +2050,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             backup_tire_raw = []
         if not isinstance(backup_equipment_raw, list):
             backup_equipment_raw = []
+        if not isinstance(backup_battery_raw, list):
+            backup_battery_raw = []
 
         backup_vehicles, _ = normalize_vehicles([
             deepcopy(vehicle)
@@ -1997,6 +2078,11 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             for item in backup_equipment_raw
             if isinstance(item, dict)
         ]
+        backup_batteries = [
+            deepcopy(item)
+            for item in backup_battery_raw
+            if isinstance(item, dict)
+        ]
 
         current_stored_vehicles = await vehicle_store.async_get_vehicles()
         option_vehicles = entry.options.get(
@@ -2009,6 +2095,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         current_fuel = await fuel_store.async_get_receipts()
         current_tires = await tire_store.async_get_sets()
         current_equipment = await equipment_store.async_get_items()
+        current_batteries = await battery_store.async_get_items()
 
         merged_vehicles = [deepcopy(vehicle) for vehicle in current_vehicles if isinstance(vehicle, dict)]
         vehicle_index_by_id = {
@@ -2135,6 +2222,28 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 equipment_index_by_id[item_id] = len(merged_equipment) - 1
                 equipment_added += 1
 
+        merged_batteries = [deepcopy(item) for item in current_batteries if isinstance(item, dict)]
+        battery_index_by_id = {
+            str(item.get("battery_id", "")).strip(): index
+            for index, item in enumerate(merged_batteries)
+            if isinstance(item, dict) and str(item.get("battery_id", "")).strip()
+        }
+        battery_added = 0
+        battery_updated = 0
+        battery_skipped = 0
+        for item in backup_batteries:
+            battery_id = str(item.get("battery_id", "")).strip()
+            if not battery_id:
+                battery_skipped += 1
+                continue
+            if battery_id in battery_index_by_id:
+                merged_batteries[battery_index_by_id[battery_id]].update(deepcopy(item))
+                battery_updated += 1
+            else:
+                merged_batteries.append(deepcopy(item))
+                battery_index_by_id[battery_id] = len(merged_batteries) - 1
+                battery_added += 1
+
         notification_merged = False
         notification_state = backup_data.get("notification_state")
         if isinstance(notification_state, dict) and isinstance(notification_state.get("notified"), dict):
@@ -2146,6 +2255,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await fuel_store.async_save_receipts(merged_fuel)
             await tire_store.async_save_sets(merged_tires)
             await equipment_store.async_save_items(merged_equipment)
+            await battery_store.async_save_items(merged_batteries)
 
             if notification_merged and isinstance(notification_state, dict):
                 try:
@@ -2202,6 +2312,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             f"- Echipamente auto adăugate: {equipment_added}",
             f"- Echipamente auto actualizate: {equipment_updated}",
             f"- Echipamente auto ignorate: {equipment_skipped}",
+            f"- Baterii auto adăugate: {battery_added}",
+            f"- Baterii auto actualizate: {battery_updated}",
+            f"- Baterii auto ignorate: {battery_skipped}",
             f"- Stare notificări: {'inclusă în merge' if notification_merged else 'neinclusă / lipsă'}",
         ]
         if unknown_history_refs:
@@ -2496,6 +2609,93 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
 
+    def _validate_battery_dates(call: ServiceCall) -> None:
+        for field_name in ("install_date", "warranty_until"):
+            value = str(call.data.get(field_name, "") or "").strip()
+            if value:
+                try:
+                    dt_date.fromisoformat(value)
+                except ValueError as err:
+                    raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
+
+    async def async_add_battery(call: ServiceCall) -> None:
+        """Add one vehicle battery."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+        _validate_battery_dates(call)
+        item = normalize_battery_item({
+            "battery_id": f"battery_{uuid4().hex[:12]}",
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "installed": call.data.get("installed", True),
+            "brand_model": call.data.get("brand_model", ""),
+            "battery_type": call.data.get("battery_type", "lead_acid"),
+            "capacity_ah": call.data.get("capacity_ah", 0),
+            "cca": call.data.get("cca", 0),
+            "polarity": call.data.get("polarity", ""),
+            "size": call.data.get("size", ""),
+            "install_date": call.data.get("install_date", ""),
+            "install_km": call.data.get("install_km", 0),
+            "warranty_until": call.data.get("warranty_until", ""),
+            "cost": call.data.get("cost", 0),
+            "notes": call.data.get("notes", ""),
+        })
+        await entry.runtime_data.battery_store.async_add_item(item)
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_update_battery(call: ServiceCall) -> None:
+        """Update one vehicle battery."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        battery_id = str(call.data.get("battery_id", "")).strip()
+        if not battery_id:
+            raise HomeAssistantError("Bateria nu are ID valid.")
+        vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
+        stored_vehicles = await entry.runtime_data.vehicle_store.async_get_vehicles()
+        option_vehicles = entry.options.get(CONF_VEHICLES, entry.data.get(CONF_VEHICLES, []))
+        vehicles = merge_vehicle_sources(list(option_vehicles), stored_vehicles)
+        found_vehicle = _find_vehicle_by_reference(vehicles, vehicle_ref)
+        if found_vehicle is None:
+            raise HomeAssistantError("Autovehiculul selectat nu a fost găsit în Car Manager România.")
+        _validate_battery_dates(call)
+        item = normalize_battery_item({
+            "battery_id": battery_id,
+            CONF_VEHICLE_ID: _vehicle_internal_id(found_vehicle),
+            "installed": call.data.get("installed", True),
+            "brand_model": call.data.get("brand_model", ""),
+            "battery_type": call.data.get("battery_type", "lead_acid"),
+            "capacity_ah": call.data.get("capacity_ah", 0),
+            "cca": call.data.get("cca", 0),
+            "polarity": call.data.get("polarity", ""),
+            "size": call.data.get("size", ""),
+            "install_date": call.data.get("install_date", ""),
+            "install_km": call.data.get("install_km", 0),
+            "warranty_until": call.data.get("warranty_until", ""),
+            "cost": call.data.get("cost", 0),
+            "notes": call.data.get("notes", ""),
+        })
+        if not await entry.runtime_data.battery_store.async_update_item(battery_id, item):
+            raise HomeAssistantError("Bateria nu a fost găsită.")
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    async def async_delete_battery(call: ServiceCall) -> None:
+        """Delete one vehicle battery."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+        battery_id = str(call.data.get("battery_id", "")).strip()
+        if not battery_id:
+            raise HomeAssistantError("Bateria nu are ID valid.")
+        if not await entry.runtime_data.battery_store.async_delete_item(battery_id):
+            raise HomeAssistantError("Bateria nu a fost găsită.")
+        await hass.config_entries.async_reload(entry.entry_id)
+
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -2658,7 +2858,72 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             async_delete_equipment_item,
             schema=DELETE_EQUIPMENT_ITEM_SCHEMA,
         )
+    if not hass.services.has_service(DOMAIN, SERVICE_ADD_BATTERY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_BATTERY,
+            async_add_battery,
+            schema=ADD_BATTERY_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_UPDATE_BATTERY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UPDATE_BATTERY,
+            async_update_battery,
+            schema=UPDATE_BATTERY_SCHEMA,
+        )
+    if not hass.services.has_service(DOMAIN, SERVICE_DELETE_BATTERY):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DELETE_BATTERY,
+            async_delete_battery,
+            schema=DELETE_BATTERY_SCHEMA,
+        )
     hass.data[DOMAIN]["services_registered"] = True
+
+
+async def _async_revalidate_license_non_blocking(
+    hass: HomeAssistant,
+    entry: CarManagerConfigEntry,
+) -> None:
+    """Revalidate the stored license after startup without blocking setup.
+
+    This task intentionally runs after the integration has finished loading. It
+    updates the local license status when the server answers clearly, but keeps
+    the cached value when the licensing server is temporarily unreachable.
+    """
+
+    await asyncio.sleep(15)
+
+    try:
+        from .license import (
+            async_obtine_context_licenta,
+            async_salveaza_licenta_globala,
+            async_valideaza_licenta,
+        )
+
+        username, license_key, _storage = await async_obtine_context_licenta(hass, intrare=entry)
+        license_key = str(license_key or "").strip() or "TRIAL"
+        result = await async_valideaza_licenta(hass, license_key, username)
+
+        # If the licensing server is unreachable, do not overwrite the last
+        # known local status. A clear revoked/expired/invalid response is saved.
+        if result.connection_error:
+            _LOGGER.warning(
+                "Car Manager România: revalidarea licenței după pornire nu a reușit: %s",
+                result.message or result.status,
+            )
+            return
+
+        await async_salveaza_licenta_globala(hass, license_key, username, result)
+        dispatcher_send(hass, SIGNAL_LICENSE_UPDATED)
+    except asyncio.CancelledError:
+        raise
+    except Exception as err:  # noqa: BLE001 - startup helper must never block HA
+        _LOGGER.warning(
+            "Car Manager România: revalidarea licenței după pornire a eșuat: %s",
+            err,
+        )
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -2671,10 +2936,12 @@ async def async_setup_entry(
     fuel_receipt_store = CarManagerFuelReceiptStore(hass)
     tire_set_store = CarManagerTireSetStore(hass)
     equipment_item_store = CarManagerEquipmentItemStore(hass)
+    battery_store = CarManagerBatteryStore(hass)
     await service_history_store.async_load()
     await fuel_receipt_store.async_load()
     await tire_set_store.async_load()
     await equipment_item_store.async_load()
+    await battery_store.async_load()
     stored_vehicles = await vehicle_store.async_get_vehicles()
 
     option_vehicles = entry.options.get(
@@ -2699,6 +2966,7 @@ async def async_setup_entry(
         fuel_receipt_store=fuel_receipt_store,
         tire_set_store=tire_set_store,
         equipment_item_store=equipment_item_store,
+        battery_store=battery_store,
         rovinieta_coordinator=rovinieta_coordinator,
     )
 
@@ -2737,6 +3005,11 @@ async def async_setup_entry(
         entry.async_on_unload(
             rovinieta_coordinator.async_add_listener(_schedule_notification_check)
         )
+
+    license_revalidation_task = hass.async_create_task(
+        _async_revalidate_license_non_blocking(hass, entry)
+    )
+    entry.async_on_unload(license_revalidation_task.cancel)
 
     return True
 

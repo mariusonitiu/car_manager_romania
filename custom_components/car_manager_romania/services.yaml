@@ -1081,3 +1081,245 @@ delete_equipment_item:
       required: true
       selector:
         text:
+
+add_battery:
+  name: Adaugă baterie auto
+  description: Adaugă o baterie pentru un autovehicul.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      required: true
+      selector:
+        text:
+    installed:
+      name: Montată acum
+      required: false
+      default: true
+      selector:
+        boolean:
+    brand_model:
+      name: Marcă / model
+      required: false
+      selector:
+        text:
+    battery_type:
+      name: Tip baterie
+      required: false
+      default: lead_acid
+      selector:
+        select:
+          options:
+            - label: Plumb-acid clasică
+              value: lead_acid
+            - label: AGM
+              value: agm
+            - label: EFB
+              value: efb
+            - label: Gel
+              value: gel
+            - label: Litiu
+              value: lithium
+            - label: Alt tip
+              value: other
+    capacity_ah:
+      name: Capacitate Ah
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          mode: box
+    cca:
+      name: Curent pornire CCA
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 2000
+          step: 1
+          mode: box
+    polarity:
+      name: Polaritate
+      required: false
+      selector:
+        text:
+    size:
+      name: Dimensiune
+      required: false
+      selector:
+        text:
+    install_date:
+      name: Data montării
+      required: false
+      selector:
+        date:
+    install_km:
+      name: Km la montare
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 999999
+          step: 1
+          mode: box
+    warranty_until:
+      name: Garanție până la
+      required: false
+      selector:
+        date:
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+update_battery:
+  name: Actualizează baterie auto
+  description: Actualizează o baterie salvată anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    battery_id:
+      name: ID baterie
+      required: true
+      selector:
+        text:
+    vehicle_id:
+      name: Autovehicul
+      required: true
+      selector:
+        text:
+    installed:
+      name: Montată acum
+      required: false
+      default: true
+      selector:
+        boolean:
+    brand_model:
+      name: Marcă / model
+      required: false
+      selector:
+        text:
+    battery_type:
+      name: Tip baterie
+      required: false
+      default: lead_acid
+      selector:
+        select:
+          options:
+            - label: Plumb-acid clasică
+              value: lead_acid
+            - label: AGM
+              value: agm
+            - label: EFB
+              value: efb
+            - label: Gel
+              value: gel
+            - label: Litiu
+              value: lithium
+            - label: Alt tip
+              value: other
+    capacity_ah:
+      name: Capacitate Ah
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 1
+          mode: box
+    cca:
+      name: Curent pornire CCA
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 2000
+          step: 1
+          mode: box
+    polarity:
+      name: Polaritate
+      required: false
+      selector:
+        text:
+    size:
+      name: Dimensiune
+      required: false
+      selector:
+        text:
+    install_date:
+      name: Data montării
+      required: false
+      selector:
+        date:
+    install_km:
+      name: Km la montare
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 999999
+          step: 1
+          mode: box
+    warranty_until:
+      name: Garanție până la
+      required: false
+      selector:
+        date:
+    cost:
+      name: Cost
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: 0.01
+          mode: box
+    notes:
+      name: Observații
+      required: false
+      selector:
+        text:
+          multiline: true
+
+delete_battery:
+  name: Șterge baterie auto
+  description: Șterge o baterie salvată anterior.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:
+    battery_id:
+      name: ID baterie
+      required: true
+      selector:
+        text:

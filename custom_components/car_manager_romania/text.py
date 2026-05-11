@@ -6,9 +6,11 @@ from copy import deepcopy
 from typing import Any
 
 from homeassistant.components.text import TextEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.dispatcher import dispatcher_send
 
 from . import CarManagerConfigEntry
@@ -23,10 +25,27 @@ from .const import (
     LEGAL_TYPE_RCA,
     RCA_TEXT_FIELDS,
     CONF_REMOVED,
+    DOMAIN,
+    VERSION,
     SIGNAL_VEHICLES_UPDATED,
 )
 from .device import build_vehicle_device_info
 from .legal import get_legal_value, set_legal_value
+from .license import async_obtine_licenta_globala
+
+
+
+
+def _hub_device_info(entry: CarManagerConfigEntry) -> DeviceInfo:
+    """Return integration hub device info."""
+
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=entry.data.get("name", "Car Manager România"),
+        manufacturer="Car Manager România",
+        model="Hub",
+        sw_version=VERSION,
+    )
 
 
 LEGAL_TEXT_FIELDS: dict[str, dict[str, str]] = {
@@ -43,7 +62,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up text entities."""
 
-    entities: list[TextEntity] = []
+    entities: list[TextEntity] = [CarManagerLicenseKeyText(entry)]
 
     for vehicle in entry.runtime_data.vehicles:
         entities.append(VehicleFuelProfileText(hass, entry, vehicle))
@@ -73,6 +92,54 @@ async def async_setup_entry(
                 )
 
     async_add_entities(entities)
+
+
+class CarManagerLicenseKeyText(RestoreEntity, TextEntity):
+    """Editable license key field for Car Manager România."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Cod licență nou"
+    _attr_icon = "mdi:key-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_native_min = 0
+    _attr_native_max = 128
+    _attr_mode = "text"
+
+    def __init__(self, entry: CarManagerConfigEntry) -> None:
+        """Initialize text entity."""
+
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_license_v2_key_text"
+        self._attr_suggested_object_id = f"{DOMAIN}_cod_licenta_noua"
+        self._attr_native_value = "TRIAL"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return hub device information."""
+
+        return _hub_device_info(self._entry)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous value or load the stored license key."""
+
+        await super().async_added_to_hass()
+
+        storage = await async_obtine_licenta_globala(self.hass)
+        storage_key = str(storage.get("cheie_licenta", "")).strip() if isinstance(storage, dict) else ""
+
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (None, "unknown", "unavailable"):
+            self._attr_native_value = last_state.state
+        elif storage_key:
+            self._attr_native_value = storage_key
+        else:
+            self._attr_native_value = "TRIAL"
+
+    async def async_set_value(self, value: str) -> None:
+        """Set the pending license key value."""
+
+        self._attr_native_value = str(value or "")[: self._attr_native_max]
+        self.async_write_ha_state()
 
 
 class VehicleBaseText(TextEntity):

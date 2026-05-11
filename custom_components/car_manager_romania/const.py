@@ -5,15 +5,33 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.21"
+VERSION = "1.0.42"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
 ATTR_INTEGRATION_VERSION = "integration_version"
 
 SIGNAL_VEHICLES_UPDATED = f"{DOMAIN}_vehicles_updated"
+SIGNAL_LICENSE_UPDATED = f"{DOMAIN}_license_updated"
 
 CONF_VEHICLES = "vehicles"
+
+
+# Licențiere Car Manager România.
+CONF_LICENSE_KEY = "cheie_licenta"
+CONF_LICENSE_USER = "utilizator"
+DATE_VERIFICARE_LICENTA = "date_verificare_licenta"
+URL_API_LICENTA = "https://license-api.marius-onitiu.workers.dev"
+DEFAULT_LICENSE_GRACE_DAYS = 7
+
+LICENSE_STATUS_ACTIVE = "active"
+LICENSE_STATUS_TRIAL = "trial"
+LICENSE_STATUS_EXPIRED = "expired"
+LICENSE_STATUS_INVALID = "invalid"
+LICENSE_STATUS_REVOKED = "revoked"
+LICENSE_STATUS_INVALID_PRODUCT = "invalid_product"
+LICENSE_STATUS_ACTIVATION_LIMIT = "activation_limit"
+LICENSE_STATUS_UNKNOWN = "unknown"
 
 SERVICE_ADD_VEHICLE = "add_vehicle"
 SERVICE_REMOVE_VEHICLE = "remove_vehicle"
@@ -39,6 +57,9 @@ SERVICE_DELETE_TIRE_SET = "delete_tire_set"
 SERVICE_ADD_EQUIPMENT_ITEM = "add_equipment_item"
 SERVICE_UPDATE_EQUIPMENT_ITEM = "update_equipment_item"
 SERVICE_DELETE_EQUIPMENT_ITEM = "delete_equipment_item"
+SERVICE_ADD_BATTERY = "add_battery"
+SERVICE_UPDATE_BATTERY = "update_battery"
+SERVICE_DELETE_BATTERY = "delete_battery"
 
 TIRE_TYPE_SUMMER = "summer"
 TIRE_TYPE_WINTER = "winter"
@@ -236,6 +257,9 @@ FUEL_LIQUID_TYPES: set[str] = {
 STORAGE_KEY_NOTIFICATIONS = f"{DOMAIN}_notifications"
 STORAGE_VERSION_NOTIFICATIONS = 1
 
+STORAGE_KEY_LICENSE = f"{DOMAIN}_licenta"
+STORAGE_VERSION_LICENSE = 1
+
 STORAGE_KEY_VEHICLES = f"{DOMAIN}_vehicles"
 STORAGE_VERSION_VEHICLES = 1
 
@@ -250,6 +274,9 @@ STORAGE_VERSION_TIRE_SETS = 1
 
 STORAGE_KEY_EQUIPMENT_ITEMS = f"{DOMAIN}_equipment_items"
 STORAGE_VERSION_EQUIPMENT_ITEMS = 1
+
+STORAGE_KEY_BATTERIES = f"{DOMAIN}_batteries"
+STORAGE_VERSION_BATTERIES = 1
 
 EQUIPMENT_TYPE_FIRST_AID_KIT = "first_aid_kit"
 EQUIPMENT_TYPE_FIRE_EXTINGUISHER = "fire_extinguisher"
@@ -277,6 +304,22 @@ EQUIPMENT_TYPES: dict[str, str] = {
     EQUIPMENT_TYPE_JUMP_CABLES: "Cabluri pornire",
     EQUIPMENT_TYPE_SNOW_CHAINS: "Lanțuri antiderapante",
     EQUIPMENT_TYPE_OTHER: "Alt echipament",
+}
+
+BATTERY_TYPE_LEAD_ACID = "lead_acid"
+BATTERY_TYPE_AGM = "agm"
+BATTERY_TYPE_EFB = "efb"
+BATTERY_TYPE_GEL = "gel"
+BATTERY_TYPE_LITHIUM = "lithium"
+BATTERY_TYPE_OTHER = "other"
+
+BATTERY_TYPES: dict[str, str] = {
+    BATTERY_TYPE_LEAD_ACID: "Plumb-acid clasică",
+    BATTERY_TYPE_AGM: "AGM",
+    BATTERY_TYPE_EFB: "EFB",
+    BATTERY_TYPE_GEL: "Gel",
+    BATTERY_TYPE_LITHIUM: "Litiu",
+    BATTERY_TYPE_OTHER: "Alt tip",
 }
 
 # Modul intern e-rovinieta.ro.
