@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +80,7 @@ from .const import (
     LEGAL_COST_TYPES,
     MAINTENANCE_TYPES,
     SIGNAL_VEHICLES_UPDATED,
+    SIGNAL_LICENSE_UPDATED,
     VERSION,
 )
 from .maintenance import get_maintenance_value, normalize_vehicles, set_maintenance_value
@@ -677,6 +679,7 @@ def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
         f"{entry_id}_license_v2_message",
         f"{entry_id}_license_v2_key_text",
         f"{entry_id}_license_v2_apply",
+        f"{entry_id}_license_v2_refresh",
     }
 
     if entry.runtime_data.rovinieta_coordinator is not None:
@@ -2878,6 +2881,50 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         )
     hass.data[DOMAIN]["services_registered"] = True
 
+
+async def _async_revalidate_license_non_blocking(
+    hass: HomeAssistant,
+    entry: CarManagerConfigEntry,
+) -> None:
+    """Revalidate the stored license after startup without blocking setup.
+
+    This task intentionally runs after the integration has finished loading. It
+    updates the local license status when the server answers clearly, but keeps
+    the cached value when the licensing server is temporarily unreachable.
+    """
+
+    await asyncio.sleep(15)
+
+    try:
+        from .license import (
+            async_obtine_context_licenta,
+            async_salveaza_licenta_globala,
+            async_valideaza_licenta,
+        )
+
+        username, license_key, _storage = await async_obtine_context_licenta(hass, intrare=entry)
+        license_key = str(license_key or "").strip() or "TRIAL"
+        result = await async_valideaza_licenta(hass, license_key, username)
+
+        # If the licensing server is unreachable, do not overwrite the last
+        # known local status. A clear revoked/expired/invalid response is saved.
+        if result.connection_error:
+            _LOGGER.warning(
+                "Car Manager România: revalidarea licenței după pornire nu a reușit: %s",
+                result.message or result.status,
+            )
+            return
+
+        await async_salveaza_licenta_globala(hass, license_key, username, result)
+        dispatcher_send(hass, SIGNAL_LICENSE_UPDATED)
+    except asyncio.CancelledError:
+        raise
+    except Exception as err:  # noqa: BLE001 - startup helper must never block HA
+        _LOGGER.warning(
+            "Car Manager România: revalidarea licenței după pornire a eșuat: %s",
+            err,
+        )
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
@@ -2958,6 +3005,11 @@ async def async_setup_entry(
         entry.async_on_unload(
             rovinieta_coordinator.async_add_listener(_schedule_notification_check)
         )
+
+    license_revalidation_task = hass.async_create_task(
+        _async_revalidate_license_non_blocking(hass, entry)
+    )
+    entry.async_on_unload(license_revalidation_task.cancel)
 
     return True
 

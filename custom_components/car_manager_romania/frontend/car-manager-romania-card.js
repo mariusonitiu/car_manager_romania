@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.31"; }
+  static get version() { return "1.0.42"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -90,9 +90,17 @@ class CarManagerRomaniaCard extends HTMLElement {
     const visibleVehicles = this._selectedVehicle
       ? vehicles.filter((vehicle) => this._matchesVehicle(vehicle, this._selectedVehicle))
       : vehicles;
+    const licenseAccess = this._splitVehiclesByLicense(vehicles, visibleVehicles);
+    const activeVisibleVehicles = licenseAccess.active;
+    const lockedVisibleVehicles = licenseAccess.locked;
     const inactiveVehicles = inactiveVehiclesAll.filter((vehicle) =>
       this._selectedVehicle ? this._matchesVehicle(vehicle, this._selectedVehicle) : true
     );
+    const subtitle = this._vehicleSubtitle(activeVisibleVehicles.length, lockedVisibleVehicles.length);
+    const premiumAccess = this._licenseAllowsPremiumFeatures();
+    if (!premiumAccess && !["vehicles", "license"].includes(this._activeTab || "vehicles")) {
+      this._activeTab = "vehicles";
+    }
 
     this.innerHTML = `
       <ha-card>
@@ -101,7 +109,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           <div class="cmr-header">
             <div>
               <div class="cmr-title">${this._escape(this.config.title || "Car Manager România")}</div>
-              <div class="cmr-subtitle">${visibleVehicles.length || 0} autovehicul${visibleVehicles.length === 1 ? "" : "e"} monitorizat${visibleVehicles.length === 1 ? "" : "e"}</div>
+              <div class="cmr-subtitle">${this._escape(subtitle)}</div>
             </div>
             <div class="cmr-header-actions">
               <button class="cmr-mode" data-action="toggle-add-vehicle">Adaugă autovehicul</button>
@@ -112,18 +120,18 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._addVehicleOpen ? this._renderAddVehicleForm() : ""}
           ${this._backupOpen ? this._renderBackupPanel() : ""}
           ${this._activeTab === "costs"
-            ? this._renderCostsTab(visibleVehicles)
+            ? this._renderCostsTab(activeVisibleVehicles)
             : this._activeTab === "fuel"
-              ? this._renderFuelTab(visibleVehicles)
+              ? this._renderFuelTab(activeVisibleVehicles)
               : this._activeTab === "tires"
-                ? this._renderTiresTab(visibleVehicles)
+                ? this._renderTiresTab(activeVisibleVehicles)
                 : this._activeTab === "equipment"
-                  ? this._renderEquipmentTab(visibleVehicles)
+                  ? this._renderEquipmentTab(activeVisibleVehicles)
                   : this._activeTab === "battery"
-                    ? this._renderBatteryTab(visibleVehicles)
+                    ? this._renderBatteryTab(activeVisibleVehicles)
                     : this._activeTab === "license"
                       ? this._renderLicenseTab()
-                      : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${visibleVehicles.length ? visibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : this._renderEmpty()}`}
+                      : `${this._anyVehicleEditing() && inactiveVehicles.length ? this._renderInactiveVehicles(inactiveVehicles) : ""}${activeVisibleVehicles.length ? activeVisibleVehicles.map((vehicle) => this._renderVehicle(vehicle)).join("") : ""}${lockedVisibleVehicles.length ? lockedVisibleVehicles.map((item) => this._renderLicenseLockedVehicle(item.vehicle, item.index)).join("") : ""}${!activeVisibleVehicles.length && !lockedVisibleVehicles.length ? this._renderEmpty() : ""}`}
         </div>
       </ha-card>
     `;
@@ -179,6 +187,55 @@ class CarManagerRomaniaCard extends HTMLElement {
       .map((group) => this._normalizeVehicle(group))
       .filter((vehicle) => !this._inactiveVehicleIds.has(vehicle.vehicle_id))
       .sort((a, b) => a.label.localeCompare(b.label, "ro"));
+  }
+
+  _vehicleAccessKey(vehicle) {
+    return (vehicle?.vehicle_id || vehicle?.key || vehicle?.label || "").toString();
+  }
+
+  _licenseAllowsAllVehicles() {
+    return this._licenseAllowsPremiumFeatures();
+  }
+
+  _licenseAllowsPremiumFeatures() {
+    const status = this._licenseEntityValue("status_licenta");
+    const plan = this._licenseEntityValue("plan_licenta");
+    return this._hasValidLicenseStatus(status) || this._isTrialLicenseStatus(status, plan);
+  }
+
+  _splitVehiclesByLicense(allVehicles, visibleVehicles) {
+    if (this._licenseAllowsAllVehicles()) {
+      return {
+        active: visibleVehicles,
+        locked: [],
+      };
+    }
+
+    const allowedKey = this._vehicleAccessKey(allVehicles[0]);
+    const active = [];
+    const locked = [];
+    const allIndexes = new Map();
+    allVehicles.forEach((vehicle, index) => {
+      const key = this._vehicleAccessKey(vehicle);
+      if (key) allIndexes.set(key, index);
+    });
+
+    for (const vehicle of visibleVehicles) {
+      const key = this._vehicleAccessKey(vehicle);
+      if (key && key === allowedKey) {
+        active.push(vehicle);
+      } else {
+        locked.push({ vehicle, index: (allIndexes.get(key) ?? 0) + 1 });
+      }
+    }
+
+    return { active, locked };
+  }
+
+  _vehicleSubtitle(activeCount, lockedCount) {
+    const activeText = `${activeCount || 0} autovehicul${activeCount === 1 ? "" : "e"} monitorizat${activeCount === 1 ? "" : "e"}`;
+    if (!lockedCount) return activeText;
+    return `${activeText} · ${lockedCount} dezactivat${lockedCount === 1 ? "" : "e"} fără licență`;
   }
 
   _buildInactiveVehicles() {
@@ -300,6 +357,15 @@ class CarManagerRomaniaCard extends HTMLElement {
 
 
   _tabDefinitions() {
+    const basicTabs = [
+      ["vehicles", "Mașini", "mdi:car-multiple"],
+      ["license", "Licență", "mdi:key-chain-variant"],
+    ];
+
+    if (!this._licenseAllowsPremiumFeatures()) {
+      return basicTabs;
+    }
+
     return [
       ["vehicles", "Mașini", "mdi:car-multiple"],
       ["costs", "Costuri", "mdi:cash-multiple"],
@@ -341,13 +407,16 @@ class CarManagerRomaniaCard extends HTMLElement {
     const buttonEntity = this._licenseEntity("button", "aplica_licenta");
     const currentInput = this._licenseDraft ?? this._licenseEntityValue("cod_licenta_noua", "text") ?? "TRIAL";
     const statusClass = this._licenseStatusClass(status);
+    const hasValidLicense = this._hasValidLicenseStatus(status);
+    const isTrialLicense = this._isTrialLicenseStatus(status, plan);
+    const showDonationHint = !hasValidLicense || isTrialLicense;
 
     return `
       <section class="cmr-license-panel">
         <div class="cmr-section-head">
           <div>
             <div class="cmr-section-title">Licență integrare</div>
-            <div class="cmr-section-subtitle">Validare prin același Cloudflare Worker folosit la Utilități România.</div>
+            <div class="cmr-section-subtitle">Activează integrarea cu o licență validă sau folosește perioada de test.</div>
           </div>
           <span class="cmr-license-badge ${statusClass}">${this._escape(status || "Neverificată")}</span>
         </div>
@@ -361,6 +430,12 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._renderLicenseInfo("Mesaj", message)}
         </div>
 
+        ${showDonationHint ? `<div class="cmr-license-donation-note">Dacă nu ai încă o licență validă, aceasta se poate obține printr-o donație minimă pe Buy me a Coffee. Pentru emiterea licenței, după donație scrie în mesaj: „Licență Car Manager România” și adresa de e-mail pe care dorești să primești cheia.</div>` : ""}
+        <a class="cmr-bmc-button" href="https://www.buymeacoffee.com/mariusonitiu" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee">
+          <span class="cmr-bmc-emoji">☕</span>
+          <span>Buy me a coffee</span>
+        </a>
+
         <form class="cmr-license-form" data-form="license">
           <label>
             <span>Cod licență</span>
@@ -370,7 +445,7 @@ class CarManagerRomaniaCard extends HTMLElement {
             <button class="cmr-action" type="submit" ${textEntity && buttonEntity ? "" : "disabled"}>Aplică licența</button>
             <button class="cmr-action cmr-secondary" type="button" data-action="license-refresh">Actualizează status</button>
           </div>
-          <div class="cmr-backup-note">Pentru trial poți lăsa valoarea <strong>TRIAL</strong>. După aplicare, cheia se salvează în storage-ul Home Assistant și în card rămâne afișată doar mascat.</div>
+          <div class="cmr-backup-note">Pentru trial poți lăsa valoarea <strong>TRIAL</strong>. După aplicare, cheia rămâne salvată local și în card este afișată doar mascat.</div>
           ${!textEntity || !buttonEntity ? `<div class="cmr-message is-warn">Entitățile de licențiere nu sunt încă disponibile. După copierea fișierelor este necesar un restart Home Assistant.</div>` : ""}
           ${this._licenseMessage ? `<div class="cmr-message">${this._escape(this._licenseMessage)}</div>` : ""}
         </form>
@@ -400,10 +475,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       return !objectPart.startsWith("utilitati_romania_");
     });
 
-    // Nu rezolvăm niciodată după sufix generic, ca să nu prindem entități din
-    // Utilități România. Acceptăm doar entități care aparțin clar domeniului
-    // car_manager_romania, inclusiv variante păstrate de HA cu _2, _3 sau
-    // obiecte generate ușor diferit din numele entității.
+    // Nu rezolvăm niciodată după sufix generic. Acceptăm doar entități care
+    // aparțin clar domeniului car_manager_romania, inclusiv variante păstrate
+    // de HA cu _2, _3 sau obiecte generate ușor diferit din numele entității.
     const byObjectId = entries.find(([entityId]) => {
       const objectPart = entityId.split(".")[1] || "";
       if (objectPart === expectedObjectId) return true;
@@ -417,6 +491,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const aliases = {
       cod_licenta_noua: ["cod licenta nou", "cod licenta noua", "license key", "licenta nou"],
       aplica_licenta: ["aplica licenta", "aplicare licenta", "apply license"],
+      actualizeaza_status_licenta: ["actualizeaza status licenta", "actualizare status licenta", "refresh license", "revalidate license"],
       status_licenta: ["status licenta"],
       plan_licenta: ["plan licenta"],
       valabila_pana_la: ["valabila pana la", "valabil pana la"],
@@ -442,6 +517,37 @@ class CarManagerRomaniaCard extends HTMLElement {
     return null;
   }
 
+
+  _licenseRefreshButtonEntity() {
+    const direct = this._licenseEntity("button", "actualizeaza_status_licenta");
+    if (direct?.entity_id) return direct;
+
+    const states = this._hass?.states || {};
+    const entries = Object.entries(states).filter(([entityId]) => entityId.startsWith("button.car_manager_romania_"));
+
+    const matchesRefresh = ([entityId, stateObj]) => {
+      const objectPart = this._normalize(entityId.split(".")[1] || "");
+      const friendlyName = this._normalize(stateObj?.attributes?.friendly_name || "");
+      const haystack = `${objectPart} ${friendlyName}`;
+
+      // Home Assistant can slightly alter Romanian slugs generated from names
+      // with diacritics. Match only Car Manager buttons, but accept partial
+      // forms such as "licen", "licenta", "licenta_2" etc.
+      return (
+        haystack.includes("actualizeaza") &&
+        haystack.includes("status") &&
+        haystack.includes("licen")
+      ) || (
+        haystack.includes("refresh") && haystack.includes("license")
+      ) || (
+        haystack.includes("revalidate") && haystack.includes("license")
+      );
+    };
+
+    const found = entries.find(matchesRefresh);
+    return found ? found[1] : null;
+  }
+
   _licenseEntityValue(objectId, domain = "sensor") {
     const stateObj = this._licenseEntity(domain, objectId);
     const value = stateObj?.state;
@@ -449,10 +555,21 @@ class CarManagerRomaniaCard extends HTMLElement {
     return value;
   }
 
+  _hasValidLicenseStatus(status) {
+    const normalized = this._normalize(status || "");
+    return /activ|active|trial/.test(normalized) && !/inactiv|inactive|invalid|expir|revoc|produs|limita|eroare/.test(normalized);
+  }
+
+  _isTrialLicenseStatus(status, plan) {
+    const normalizedStatus = this._normalize(status || "");
+    const normalizedPlan = this._normalize(plan || "");
+    return /trial|test/.test(normalizedStatus) || /trial|test/.test(normalizedPlan);
+  }
+
   _licenseStatusClass(status) {
     const normalized = this._normalize(status || "");
-    if (/activ|trial/.test(normalized)) return "is-good";
-    if (/expir|invalid|revoc|produs|limita/.test(normalized)) return "is-bad";
+    if (this._hasValidLicenseStatus(status)) return "is-good";
+    if (/expir|invalid|revoc|produs|limita|inactiv|inactive/.test(normalized)) return "is-bad";
     if (/necunoscut|eroare|neverificat/.test(normalized)) return "is-warn";
     return "is-neutral";
   }
@@ -1236,8 +1353,34 @@ class CarManagerRomaniaCard extends HTMLElement {
     `;
   }
 
+  _renderLicenseLockedVehicle(vehicle, index) {
+    const label = index ? `Autovehicul suplimentar #${index}` : "Autovehicul suplimentar";
+    return `
+      <section class="cmr-vehicle cmr-license-locked-vehicle">
+        <div class="cmr-locked-head">
+          <div class="cmr-locked-icon"><ha-icon icon="mdi:lock-outline"></ha-icon></div>
+          <div>
+            <div class="cmr-vehicle-title">${this._escape(label)}</div>
+            <div class="cmr-plate">Dezactivat fără licență activă</div>
+          </div>
+        </div>
+        <div class="cmr-license-locked-body">
+          Datele acestui autovehicul sunt păstrate local, dar afișarea și funcțiile lui sunt blocate până la activarea unei licențe valide.
+        </div>
+        <div class="cmr-license-locked-actions">
+          <button class="cmr-mode" data-action="open-license-tab" type="button">Activează licența</button>
+        </div>
+      </section>
+    `;
+  }
+
   _renderDashboard(vehicle, summary) {
     const expanded = this._showDetails || this._expandedVehicles.has(vehicle.key);
+    const premiumAccess = this._licenseAllowsPremiumFeatures();
+    const detailsHtml = premiumAccess
+      ? `${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderTireMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}`
+      : `${this._renderMaintenance(vehicle)}${this._renderLegalDetails(summary)}${this._renderRovinietaDetails(vehicle)}${this._renderFreeModeNotice()}`;
+
     return `
       ${this._renderOverallSummary(vehicle)}
       <div class="cmr-grid">
@@ -1252,7 +1395,18 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${expanded ? "Ascunde detalii" : "Detalii"}
         </button>
       </div>
-      ${expanded ? `<div class="cmr-details">${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderTireMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}</div>` : ""}
+      ${expanded ? `<div class="cmr-details">${detailsHtml}</div>` : ""}
+    `;
+  }
+
+  _renderFreeModeNotice() {
+    return `
+      <div class="cmr-section cmr-free-mode-section">
+        <div class="cmr-section-title">Mod gratuit</div>
+        <div class="cmr-row-muted">
+          Sunt disponibile doar revizia, RCA, CASCO, ITP și rovinieta pentru primul autovehicul. Costurile, combustibilul, anvelopele, siguranța, bateria, istoricul intervențiilor și notificările sunt disponibile doar cu licență activă sau în perioada de test.
+        </div>
+      </div>
     `;
   }
 
@@ -1966,6 +2120,7 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   async _refreshLicenseEntities() {
+    const refreshButton = this._licenseRefreshButtonEntity();
     const entityIds = [
       this._licenseEntity("sensor", "status_licenta")?.entity_id,
       this._licenseEntity("sensor", "plan_licenta")?.entity_id,
@@ -1976,13 +2131,26 @@ class CarManagerRomaniaCard extends HTMLElement {
       this._licenseEntity("sensor", "mesaj_licenta")?.entity_id,
     ].filter(Boolean);
 
-    if (!entityIds.length) return;
-
     try {
-      await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
-      this._licenseMessage = this._licenseMessage || "Statusul licenței a fost reîmprospătat.";
+      if (refreshButton?.entity_id) {
+        this._licenseMessage = "Se verifică licența...";
+        this.render();
+        await this._hass.callService("button", "press", {}, { entity_id: refreshButton.entity_id });
+        this._licenseMessage = "Statusul licenței a fost verificat online.";
+      } else if (entityIds.length) {
+        await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
+        this._licenseMessage = this._licenseMessage || "Statusul licenței a fost reîmprospătat local.";
+      }
     } catch (error) {
-      this._licenseMessage = error?.message || "Nu am putut actualiza senzorii de licență.";
+      this._licenseMessage = error?.message || "Nu am putut verifica licența.";
+    }
+
+    if (entityIds.length) {
+      try {
+        await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
+      } catch (_error) {
+        // Senzorii primesc oricum update prin dispatcher; acest update este doar un fallback vizual.
+      }
     }
   }
 
@@ -2019,6 +2187,14 @@ class CarManagerRomaniaCard extends HTMLElement {
 
     this.querySelector('[data-action="license-refresh"]')?.addEventListener("click", async () => {
       await this._refreshLicenseEntities();
+    });
+
+    this.querySelectorAll('[data-action="open-license-tab"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        this._activeTab = "license";
+        this._tabHoverLabel = "";
+        this.render();
+      });
     });
 
     this.querySelectorAll('[data-action="set-tab"]').forEach((button) => {
@@ -4278,8 +4454,18 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-license-form label { display: grid; gap: 5px; font-size: 12px; color: var(--secondary-text-color); font-weight: 800; }
       .cmr-license-form input { width: 100%; box-sizing: border-box; border-radius: 12px; border: 1px solid var(--divider-color); padding: 10px 11px; background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
       .cmr-license-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+      .cmr-license-donation-note { margin: -2px 0 10px; color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; }
+      .cmr-bmc-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: fit-content; max-width: 100%; box-sizing: border-box; margin: 0 0 12px; padding: 8px 13px; border-radius: 999px; background: #FFDD00; border: 1px solid #000000; color: #000000; text-decoration: none; font-size: 14px; font-weight: 900; line-height: 1; box-shadow: 0 2px 0 rgba(0,0,0,.18); }
+      .cmr-bmc-button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .cmr-bmc-emoji { font-size: 17px; line-height: 1; }
       .cmr-backup-field { margin-top: 10px; }
       .cmr-vehicle { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
+      .cmr-license-locked-vehicle { background: color-mix(in srgb, var(--card-background-color) 88%, var(--secondary-text-color) 12%); border: 1px dashed color-mix(in srgb, var(--secondary-text-color) 55%, var(--divider-color)); opacity: .86; }
+      .cmr-locked-head { display: flex; align-items: center; gap: 10px; }
+      .cmr-locked-icon { width: 34px; height: 34px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--secondary-text-color) 16%, transparent); color: var(--secondary-text-color); flex: 0 0 auto; }
+      .cmr-locked-icon ha-icon { width: 20px; height: 20px; }
+      .cmr-license-locked-body { margin-top: 12px; color: var(--secondary-text-color); font-size: 12px; line-height: 1.4; }
+      .cmr-license-locked-actions { margin-top: 12px; display: flex; justify-content: flex-start; }
       .cmr-vehicle-title { font-size: 17px; font-weight: 800; }
       .cmr-km { white-space: nowrap; font-weight: 800; font-size: 18px; }
       .cmr-overall { margin-top: 14px; padding: 11px 12px; border-radius: 16px; background: var(--card-background-color); border: 1px solid var(--divider-color); border-left: 5px solid var(--cmr-accent, var(--divider-color)); }

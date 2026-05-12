@@ -66,7 +66,7 @@ class LicenseResult:
         }
 
 
-# Compat aliases with the Romanian naming used in Utilități România.
+# Compat aliases pentru denumiri istorice.
 RezultatLicenta = LicenseResult
 
 
@@ -84,7 +84,7 @@ def build_instance_fingerprint(hass: HomeAssistant) -> str:
 
 
 def construieste_fingerprint_instanta(hass: HomeAssistant) -> str:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return build_instance_fingerprint(hass)
 
@@ -98,7 +98,7 @@ async def async_get_global_license(hass: HomeAssistant) -> dict[str, Any]:
 
 
 async def async_obtine_licenta_globala(hass: HomeAssistant) -> dict[str, Any]:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_get_global_license(hass)
 
@@ -131,7 +131,7 @@ async def async_salveaza_licenta_globala(
     utilizator: str,
     rezultat: LicenseResult | None = None,
 ) -> None:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     await async_save_global_license(hass, cheie_licenta, utilizator, rezultat)
 
@@ -179,7 +179,7 @@ async def async_obtine_context_licenta(
     utilizator: str | None = None,
     cheie_licenta: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_get_license_context(hass, intrare, utilizator, cheie_licenta)
 
@@ -197,7 +197,7 @@ def _date_licenta_din_storage_sunt_pentru_contextul_curent(
     cheie_licenta: str,
     utilizator: str,
 ) -> bool:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return _stored_license_matches_context(date_licenta_globala, cheie_licenta, utilizator)
 
@@ -207,7 +207,7 @@ async def async_validate_license(
     license_key: str,
     username: str,
 ) -> LicenseResult:
-    """Validate a license using the shared Cloudflare Worker."""
+    """Validate a license using the configured licensing endpoint."""
 
     session = async_get_clientsession(hass)
     payload = {
@@ -230,6 +230,20 @@ async def async_validate_license(
             raw_status = str(data.get("status", LICENSE_STATUS_UNKNOWN)).strip().lower()
             valid = bool(data.get("valid", False) or data.get("active", False))
 
+            # Un status terminal negativ are prioritate peste orice câmp generic
+            # `valid`/`active` întors de server. Unele răspunsuri pot păstra
+            # metadate istorice ale unei licențe, dar dacă statusul este revoked,
+            # expired sau invalid, integrarea trebuie să îl trateze ca nevalid.
+            terminal_invalid_statuses = {
+                LICENSE_STATUS_REVOKED,
+                LICENSE_STATUS_EXPIRED,
+                LICENSE_STATUS_INVALID,
+                LICENSE_STATUS_INVALID_PRODUCT,
+                LICENSE_STATUS_ACTIVATION_LIMIT,
+            }
+            if raw_status in terminal_invalid_statuses:
+                valid = False
+
             response_product = str(data.get("product") or data.get("domain") or "").strip()
             if valid and response_product and response_product != DOMAIN:
                 valid = False
@@ -240,7 +254,7 @@ async def async_validate_license(
                 if response.status in (400, 401, 403, 404):
                     status = raw_status if raw_status in LICENSE_STATUS_LABELS else LICENSE_STATUS_INVALID
                 else:
-                    status = LICENSE_STATUS_UNKNOWN
+                    status = raw_status if raw_status in terminal_invalid_statuses else LICENSE_STATUS_UNKNOWN
             elif valid:
                 status = LICENSE_STATUS_TRIAL if raw_status == LICENSE_STATUS_TRIAL else LICENSE_STATUS_ACTIVE
             else:
@@ -273,7 +287,7 @@ async def async_valideaza_licenta(
     cheie_licenta: str,
     utilizator: str,
 ) -> LicenseResult:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_validate_license(hass, cheie_licenta, utilizator)
 
@@ -293,7 +307,7 @@ def extract_stored_license_result(entry: ConfigEntry | None = None, storage: dic
 
 
 def extrage_date_licenta_stocate(intrare: ConfigEntry) -> dict[str, Any]:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return extract_stored_license_result(intrare)
 
@@ -305,7 +319,7 @@ def license_is_accepted(license_data: dict[str, Any]) -> bool:
 
 
 def licenta_este_acceptata(date_licenta: dict[str, Any]) -> bool:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return license_is_accepted(date_licenta)
 
@@ -335,7 +349,7 @@ def se_poate_folosi_licenta_din_cache(
     date_licenta: dict[str, Any],
     zile_gratie: int = DEFAULT_LICENSE_GRACE_DAYS,
 ) -> bool:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return can_use_cached_license(date_licenta, zile_gratie)
 
@@ -352,7 +366,7 @@ def mask_license_key(key: str | None) -> str:
 
 
 def mascheaza_cheia_licenta(cheie: str | None) -> str:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return mask_license_key(cheie)
 
@@ -401,7 +415,7 @@ async def async_verifica_licenta(
     hass: HomeAssistant,
     intrare: ConfigEntry | None = None,
 ) -> LicenseResult:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_check_license(hass, intrare)
 
@@ -429,7 +443,7 @@ def validate_license_result(result: LicenseResult) -> None:
 
 
 def valideaza_rezultat_licenta(rezultat: LicenseResult) -> None:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     validate_license_result(rezultat)
 
@@ -454,7 +468,7 @@ async def async_salveaza_licenta_in_intrare(
     intrare: ConfigEntry,
     rezultat: LicenseResult,
 ) -> None:
-    """Compatibility wrapper for Utilități România naming."""
+    """Compatibility wrapper for historical naming."""
 
     await async_save_license_in_entry(hass, intrare, rezultat)
 

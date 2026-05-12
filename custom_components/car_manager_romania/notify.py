@@ -29,6 +29,7 @@ from .equipment import equipment_issues_for_vehicle
 from .battery import battery_issues_for_vehicle
 from .legal import legal_days_remaining, legal_status, is_legal_ignored
 from .maintenance import maintenance_remaining_values, maintenance_status
+from .license import async_get_global_license, extract_stored_license_result, license_is_accepted
 from .rovinieta.models import VehicleData
 from .storage import CarManagerNotificationStore
 
@@ -515,6 +516,38 @@ async def _clear_legacy_item_notifications(
     )
 
 
+
+
+async def _license_allows_notifications(hass: HomeAssistant) -> bool:
+    """Return True when notifications are allowed by the current license mode."""
+
+    storage = await async_get_global_license(hass)
+    license_data = extract_stored_license_result(storage=storage)
+    return license_is_accepted(license_data)
+
+
+async def _clear_vehicle_notifications(
+    hass: HomeAssistant,
+    store: CarManagerNotificationStore,
+    vehicle_id: str,
+) -> None:
+    """Clear all persistent notifications managed for a vehicle."""
+
+    await _clear_legacy_item_notifications(hass, store, vehicle_id)
+    await _clear_notification(
+        hass,
+        store,
+        _overall_notification_key(vehicle_id),
+        _overall_notification_id(vehicle_id),
+    )
+    await _clear_notification(
+        hass,
+        store,
+        _expenses_notification_key(vehicle_id),
+        _expenses_notification_id(vehicle_id),
+    )
+
+
 async def async_check_maintenance_notifications(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
@@ -522,6 +555,13 @@ async def async_check_maintenance_notifications(
     """Create one smart persistent notification per vehicle when its issue list changes."""
 
     store = CarManagerNotificationStore(hass)
+
+    notifications_allowed = await _license_allows_notifications(hass)
+    if not notifications_allowed:
+        for vehicle in entry.runtime_data.vehicles:
+            vehicle_id = str(vehicle["vehicle_id"])
+            await _clear_vehicle_notifications(hass, store, vehicle_id)
+        return
 
     for vehicle in entry.runtime_data.vehicles:
         vehicle_id = str(vehicle["vehicle_id"])
