@@ -1323,3 +1323,13 @@ delete_battery:
       required: true
       selector:
         text:
+
+refresh_license_status:
+  name: Actualizează status licență
+  description: Verifică online licența salvată și actualizează statusul local al integrării.
+  fields:
+    entry_id:
+      name: Entry ID
+      required: false
+      selector:
+        text:

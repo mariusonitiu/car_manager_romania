@@ -53,6 +53,7 @@ from .const import (
     SERVICE_IMPORT_DATA,
     SERVICE_SET_LEGAL_OPTION,
     SERVICE_CLEANUP_ORPHAN_ENTITIES,
+    SERVICE_REFRESH_LICENSE_STATUS,
     SERVICE_ADD_FUEL_RECEIPT,
     SERVICE_UPDATE_FUEL_RECEIPT,
     SERVICE_DELETE_FUEL_RECEIPT,
@@ -272,22 +273,32 @@ async def _async_lovelace_card_resource_exists(hass: HomeAssistant) -> bool:
 async def _async_register_frontend(hass: HomeAssistant) -> None:
     """Serve the bundled Lovelace card and notify the user only when the resource is missing."""
 
-    frontend_path = Path(__file__).parent / "frontend"
+    base_path = Path(__file__).parent
+    frontend_path = base_path / "frontend"
+    brand_path = base_path / "brand"
     if not frontend_path.exists():
         return
 
     try:
         from homeassistant.components.http import StaticPathConfig
 
-        await hass.http.async_register_static_paths(
-            [
+        static_paths = [
+            StaticPathConfig(
+                "/car_manager_romania",
+                str(frontend_path),
+                True,
+            )
+        ]
+        if brand_path.exists():
+            static_paths.append(
                 StaticPathConfig(
-                    "/car_manager_romania",
-                    str(frontend_path),
+                    "/car_manager_romania_brand",
+                    str(brand_path),
                     True,
                 )
-            ]
-        )
+            )
+
+        await hass.http.async_register_static_paths(static_paths)
     except Exception:  # noqa: BLE001
         try:
             hass.http.async_register_static_path(
@@ -295,6 +306,12 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
                 str(frontend_path),
                 True,
             )
+            if brand_path.exists():
+                hass.http.async_register_static_path(
+                    "/car_manager_romania_brand",
+                    str(brand_path),
+                    True,
+                )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Nu am putut publica fișierul cardului Lovelace: %s", err)
             return
@@ -439,6 +456,12 @@ CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): str,
         vol.Optional("dry_run", default=False): bool,
+    }
+)
+
+REFRESH_LICENSE_STATUS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): str,
     }
 )
 
@@ -1071,6 +1094,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_IMPORT_DATA)
         and hass.services.has_service(DOMAIN, SERVICE_SET_LEGAL_OPTION)
         and hass.services.has_service(DOMAIN, SERVICE_CLEANUP_ORPHAN_ENTITIES)
+        and hass.services.has_service(DOMAIN, SERVICE_REFRESH_LICENSE_STATUS)
         and hass.services.has_service(DOMAIN, SERVICE_ADD_FUEL_RECEIPT)
         and hass.services.has_service(DOMAIN, SERVICE_UPDATE_FUEL_RECEIPT)
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_FUEL_RECEIPT)
@@ -1079,6 +1103,30 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         and hass.services.has_service(DOMAIN, SERVICE_DELETE_TIRE_SET)
     ):
         return
+
+    async def async_refresh_license_status(call: ServiceCall) -> None:
+        """Force an online license validation from a Home Assistant service call."""
+
+        entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
+
+        from .license import (
+            async_obtine_context_licenta,
+            async_salveaza_licenta_globala,
+            async_valideaza_licenta,
+        )
+
+        username, license_key, _storage = await async_obtine_context_licenta(hass, intrare=entry)
+        license_key = str(license_key or "").strip() or "TRIAL"
+        result = await async_valideaza_licenta(hass, license_key, username)
+
+        await async_salveaza_licenta_globala(hass, license_key, username, result)
+        dispatcher_send(hass, SIGNAL_LICENSE_UPDATED)
+
+        if result.connection_error:
+            raise HomeAssistantError(result.message or "Serverul de licențiere nu a putut fi contactat.")
+
+        if not result.valid:
+            raise HomeAssistantError(result.message or "Licența nu este validă.")
 
     async def async_add_vehicle(call: ServiceCall) -> None:
         """Add a vehicle from a Home Assistant service call."""
@@ -2696,6 +2744,14 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
 
+    if not hass.services.has_service(DOMAIN, SERVICE_REFRESH_LICENSE_STATUS):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_REFRESH_LICENSE_STATUS,
+            async_refresh_license_status,
+            schema=REFRESH_LICENSE_STATUS_SCHEMA,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_ADD_VEHICLE):
         hass.services.async_register(
             DOMAIN,
@@ -2791,6 +2847,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         hass.services.async_register(
             DOMAIN,
             SERVICE_CLEANUP_ORPHAN_ENTITIES,
+    SERVICE_REFRESH_LICENSE_STATUS,
             async_cleanup_orphan_entities,
             schema=CLEANUP_ORPHAN_ENTITIES_SERVICE_SCHEMA,
         )

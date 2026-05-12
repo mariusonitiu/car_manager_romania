@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.42"; }
+  static get version() { return "1.0.53"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -107,9 +107,17 @@ class CarManagerRomaniaCard extends HTMLElement {
         <style>${this._styles()}</style>
         <div class="cmr-card">
           <div class="cmr-header">
-            <div>
-              <div class="cmr-title">${this._escape(this.config.title || "Car Manager România")}</div>
-              <div class="cmr-subtitle">${this._escape(subtitle)}</div>
+            <div class="cmr-header-main">
+              <img
+                class="cmr-brand-icon"
+                src="/car_manager_romania_brand/icon.png"
+                alt=""
+                loading="lazy"
+              >
+              <div class="cmr-header-text">
+                <div class="cmr-title">${this._escape(this.config.title || "Car Manager România")}</div>
+                <div class="cmr-subtitle">${this._escape(subtitle)}</div>
+              </div>
             </div>
             <div class="cmr-header-actions">
               <button class="cmr-mode" data-action="toggle-add-vehicle">Adaugă autovehicul</button>
@@ -2138,14 +2146,17 @@ class CarManagerRomaniaCard extends HTMLElement {
     ].filter(Boolean);
 
     try {
-      if (refreshButton?.entity_id) {
-        this._licenseMessage = "Se verifică licența...";
-        this.render();
+      this._licenseMessage = "Se verifică licența online...";
+      this.render();
+
+      if (this._hass.services?.car_manager_romania?.refresh_license_status) {
+        await this._hass.callService("car_manager_romania", "refresh_license_status", {});
+        this._licenseMessage = "Statusul licenței a fost verificat online.";
+      } else if (refreshButton?.entity_id) {
         await this._hass.callService("button", "press", {}, { entity_id: refreshButton.entity_id });
         this._licenseMessage = "Statusul licenței a fost verificat online.";
-      } else if (entityIds.length) {
-        await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
-        this._licenseMessage = this._licenseMessage || "Statusul licenței a fost reîmprospătat local.";
+      } else {
+        throw new Error("Serviciul de verificare online a licenței nu este disponibil. Fă restart Home Assistant după actualizare.");
       }
     } catch (error) {
       this._licenseMessage = error?.message || "Nu am putut verifica licența.";
@@ -2161,6 +2172,10 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _attachEvents() {
+    this.querySelectorAll(".cmr-brand-icon").forEach((image) => {
+      image.addEventListener("error", () => image.classList.add("is-hidden"), { once: true });
+    });
+
     this.querySelector('[data-action="toggle-mode"]')?.addEventListener("click", () => {
       this._editMode = !this._editMode;
       this.render();
@@ -4445,6 +4460,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       .cmr-card { padding: 16px; container-type: inline-size; }
       .cmr-header, .cmr-vehicle-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+      .cmr-header-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .cmr-header-text { min-width: 0; }
+      .cmr-brand-icon { width: 88px; height: 88px; border-radius: 18px; object-fit: contain; flex: 0 0 auto; background: color-mix(in srgb, var(--primary-color) 10%, transparent); box-shadow: 0 8px 22px rgba(0,0,0,.12); }
+      .cmr-brand-icon.is-hidden { display: none; }
       .cmr-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
       .cmr-tabs-wrap { margin-top: 14px; padding: 6px 8px 8px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 88%, var(--primary-color) 12%); border: 1px solid var(--divider-color); }
       .cmr-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; align-items: center; }
@@ -4627,6 +4646,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-empty { margin-top: 14px; color: var(--secondary-text-color); padding: 14px; border: 1px dashed var(--divider-color); border-radius: 14px; }
       @container (max-width: 420px) {
         .cmr-header, .cmr-vehicle-head, .cmr-fuel-head { align-items: flex-start; }
+        .cmr-header { flex-direction: column; }
+        .cmr-brand-icon { width: 76px; height: 76px; border-radius: 16px; }
         .cmr-header-actions { width: 100%; justify-content: flex-start; }
         .cmr-add-grid, .cmr-cost-summary-grid, .cmr-license-grid { grid-template-columns: 1fr; }
         .cmr-fuel-head { flex-direction: column; }
