@@ -180,9 +180,18 @@ Pentru fiecare echipament pot fi urmărite informații precum prezența, termenu
 
 Car Manager România include un sistem de licențiere integrat.
 
-Licența poate fi verificată direct din card, folosind butonul **Actualizează status**.
+După instalare, integrarea poate fi folosită într-o perioadă de test de **90 de zile**, fără introducerea unei licențe.
+
+Perioada de test permite verificarea funcționalităților principale ale integrării înainte de activarea unei licențe permanente.
+
+După expirarea perioadei de test, pentru continuarea utilizării este necesară activarea unei licențe valide.
+
+Licența poate fi introdusă și verificată direct din cardul Lovelace, folosind secțiunea dedicată de licențiere.
+
+Statusul licenței poate fi actualizat din card prin butonul **Actualizează status**.
 
 Verificarea se face prin serviciul backend al integrării:
+
 
 ```text
 car_manager_romania.refresh_license_status
