@@ -178,20 +178,32 @@ Pentru fiecare echipament pot fi urmărite informații precum prezența, termenu
 
 ## Sistem de licențiere
 
-Car Manager România include un sistem de licențiere integrat.
+Car Manager România include un sistem de licențiere integrat, gândit mai mult ca o formă de susținere a proiectului decât ca o limitare agresivă.
 
-După instalare, integrarea poate fi folosită într-o perioadă de test de **90 de zile**, fără introducerea unei licențe.
+După instalare, integrarea poate fi folosită complet într-o perioadă de test de **90 de zile**, fără introducerea unei licențe.
 
-Perioada de test permite verificarea funcționalităților principale ale integrării înainte de activarea unei licențe permanente.
+În această perioadă pot fi testate funcționalitățile principale ale integrării:
 
-După expirarea perioadei de test, pentru continuarea utilizării este necesară activarea unei licențe valide.
+- administrarea mai multor autovehicule;
+- cardul Lovelace complet;
+- modulele de mentenanță;
+- RCA, ITP și rovinietă;
+- costuri;
+- combustibil;
+- echipamente;
+- funcționalitățile avansate disponibile în versiunea curentă.
+
+După expirarea perioadei de test, integrarea rămâne funcțională, dar trece în modul gratuit cu funcționalități reduse.
+
+În modul gratuit, integrarea poate fi folosită în continuare pentru **un singur autovehicul**, cu funcționalitățile de bază necesare pentru administrarea acestuia. Funcționalitățile avansate, suportul complet pentru mai multe autovehicule și modulele extinse necesită o licență activă.
+
+Licența se poate obține printr-o donație minimă pe **Buy Me a Coffee**. Această donație ajută la susținerea dezvoltării proiectului, mentenanței, testării și îmbunătățirilor viitoare.
 
 Licența poate fi introdusă și verificată direct din cardul Lovelace, folosind secțiunea dedicată de licențiere.
 
 Statusul licenței poate fi actualizat din card prin butonul **Actualizează status**.
 
 Verificarea se face prin serviciul backend al integrării:
-
 
 ```text
 car_manager_romania.refresh_license_status
