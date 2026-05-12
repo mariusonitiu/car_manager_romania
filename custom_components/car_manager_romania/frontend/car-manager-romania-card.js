@@ -774,7 +774,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._renderCostSummaryCard("Cantitate anul curent", totalYearQuantity ? `${this._formatNumber(totalYearQuantity, 2)} L/kWh` : "—", totalMonthQuantity ? `Luna curentă: ${this._formatNumber(totalMonthQuantity, 2)} L/kWh` : "Fără alimentări luna curentă")}
           ${this._renderCostSummaryCard("Preț mediu", averageUnitPrice ? `${this._formatNumber(averageUnitPrice, 2)} RON/unitate` : "—", "Calculat din anul curent")}
           ${this._renderCostSummaryCard("Bonuri salvate", `${receipts.length}`, "Total alimentări afișate")}
-          ${latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(latestReceipt.total_cost), `${latestReceipt.date || ""} · ${latestReceipt.vehicle_label || ""}`) : this._renderCostSummaryCard("Ultimul bon", "—", "Nu există bonuri salvate")}
+          ${latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(latestReceipt.total_cost), `${this._formatDateForDisplay(latestReceipt.date || "")} · ${latestReceipt.vehicle_label || ""}`) : this._renderCostSummaryCard("Ultimul bon", "—", "Nu există bonuri salvate")}
         </div>
         ${summaries.map((summary) => this._renderFuelVehiclePanel(summary)).join("")}
       </section>
@@ -858,9 +858,38 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _dateParts(value) {
-    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+    const iso = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (iso) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
+
+    const ro = String(value || "").trim().match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (ro) return { year: Number(ro[3]), month: Number(ro[2]), day: Number(ro[1]) };
+
+    return null;
+  }
+
+  _formatDateInputValue(value) {
+    return this._parseDateInputValue(value || "");
+  }
+
+  _parseDateInputValue(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+    const ro = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (ro) {
+      const day = ro[1].padStart(2, "0");
+      const month = ro[2].padStart(2, "0");
+      return `${ro[3]}-${month}-${day}`;
+    }
+
+    return text;
+  }
+
+  _formDate(data, name) {
+    return this._parseDateInputValue((data.get(name) || "").toString());
   }
 
   _latestFuelReceipt(receipts) {
@@ -891,7 +920,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._renderCostSummaryCard("Luna curentă", summary.monthCost, `${this._formatNumber(summary.monthQuantity, 2)} L/kWh · ${summary.monthReceipts} bonuri`)}
           ${this._renderCostSummaryCard("Preț mediu", summary.yearAverageUnitPrice ? `${this._formatNumber(summary.yearAverageUnitPrice, 2)} RON/unitate` : "—", "anul curent")}
           ${this._renderCostSummaryCard("Consum mediu", summary.averageConsumption && summary.averageConsumption !== "unknown" && summary.averageConsumption !== "unavailable" ? `${summary.averageConsumption} L/100 km` : "—", latestInterval ? `${latestInterval.distance_km} km · ${latestInterval.liters} L · ${this._formatMoney(latestInterval.cost)}` : "necalculat")}
-          ${summary.latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(summary.latestReceipt.total_cost), `${summary.latestReceipt.date || ""} · ${summary.latestReceipt.quantity || ""} ${summary.latestReceipt.unit || "L"}`) : this._renderCostSummaryCard("Ultimul bon", "—", "nu există")}
+          ${summary.latestReceipt ? this._renderCostSummaryCard("Ultimul bon", this._formatMoney(summary.latestReceipt.total_cost), `${this._formatDateForDisplay(summary.latestReceipt.date || "")} · ${summary.latestReceipt.quantity || ""} ${summary.latestReceipt.unit || "L"}`) : this._renderCostSummaryCard("Ultimul bon", "—", "nu există")}
         </div>
         ${this._renderFuelConsumptionHint(summary)}
         ${open ? this._renderFuelReceiptForm(summary.vehicle) : ""}
@@ -933,7 +962,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <form class="cmr-history-form" data-form="fuel-receipt" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
         <div class="cmr-add-grid">
-          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(draft.date || today)}"></label>
+          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date || today))}"></label>
           <label class="cmr-field"><span>Kilometraj bord</span><input type="number" name="km" min="1" step="1" required value="${this._escape(draft.km || this._extractSummary(vehicle).km || "")}"></label>
           <label class="cmr-field"><span>Tip combustibil</span><select name="fuel_type" required>${fuelOptions}</select></label>
           <label class="cmr-field"><span>Litri / kWh</span><input type="number" name="quantity" min="0.001" step="0.001" required value="${this._escape(draft.quantity || "")}"></label>
@@ -966,7 +995,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           <div class="cmr-cost-item-value">${this._formatMoney(receipt.total_cost)}</div>
           <div class="cmr-inline-actions">
             <button class="cmr-mini-action" type="button" data-action="toggle-edit-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}">${isEditing ? "Renunță" : "Editează"}</button>
-            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}" data-receipt-label="${this._escape(`${receipt.date || "fără dată"} · ${receipt.fuel_type_label || "Combustibil"} · ${this._formatMoney(receipt.total_cost)}`)}">Șterge</button>
+            <button class="cmr-mini-action cmr-danger" type="button" data-action="delete-fuel-receipt" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(summary.key)}" data-receipt-label="${this._escape(`${this._formatDateForDisplay(receipt.date) || "fără dată"} · ${receipt.fuel_type_label || "Combustibil"} · ${this._formatMoney(receipt.total_cost)}`)}">Șterge</button>
           </div>
         </div>
         ${isEditing ? this._renderFuelReceiptEditForm(summary.vehicle, receipt) : ""}
@@ -987,7 +1016,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <form class="cmr-history-form cmr-inline-edit-form" data-form="fuel-receipt-edit" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
         <div class="cmr-add-grid">
-          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(draft.date ?? receipt.date ?? "")}"></label>
+          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date ?? receipt.date ?? ""))}"></label>
           <label class="cmr-field"><span>Kilometraj bord</span><input type="number" name="km" min="1" step="1" required value="${this._escape(draft.km ?? receipt.km ?? "")}"></label>
           <label class="cmr-field"><span>Tip combustibil</span><select name="fuel_type" required>${fuelOptions}</select></label>
           <label class="cmr-field"><span>Litri / kWh</span><input type="number" name="quantity" min="0.001" step="0.001" required value="${this._escape(quantity)}"></label>
@@ -1162,8 +1191,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(draft.dot || "")}" placeholder="ex. 3523"></label>
           <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(draft.quantity || "4")}"></label>
           <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(draft.wheel_mount_type || "tires_only")}</select></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || today)}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(draft.last_mount_date || "")}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(draft.purchase_date || today))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(this._formatDateInputValue(draft.last_mount_date || ""))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(draft.last_mount_km || "0")}"></label>
           <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(draft.total_km || "0")}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
@@ -1222,8 +1251,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(value("dot"))}"></label>
           <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(value("quantity", "4"))}"></label>
           <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(value("wheel_mount_type", "tires_only"))}</select></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(value("last_mount_date"))}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(value("purchase_date")))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(this._formatDateInputValue(value("last_mount_date")))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(value("last_mount_km", "0"))}"></label>
           <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(value("total_km", "0"))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
@@ -1498,7 +1527,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       <div class="cmr-tile ${stateClass}">
         <div class="cmr-tile-top"><ha-icon icon="${icon}"></ha-icon><span class="cmr-tile-title">${this._escape(title)}</span></div>
         <div class="cmr-tile-main">${this._escape(this._formatMain(main))}</div>
-        <div class="cmr-tile-sub">${this._escape(status || sub || "neconfigurat")}</div>
+        <div class="cmr-tile-sub">${this._escape(this._formatDisplayValue(status || sub || "neconfigurat"))}</div>
       </div>
     `;
   }
@@ -1694,7 +1723,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           </label>
           <label class="cmr-field">
             <span>Data</span>
-            <input type="date" name="date" value="${this._escape(draft.date || today)}">
+            <input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date || today))}">
           </label>
           <label class="cmr-field">
             <span>Kilometraj</span>
@@ -2040,7 +2069,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       return /itp.*(incepe la|expira la|statie|numar raport|observatii|cost estimat)/.test(name);
     }
     if (legalType === "rovinieta") {
-      return /rovinieta.*(cost estimat)/.test(name);
+      return /rovinieta.*(incepe la|expira la|cost estimat)/.test(name);
     }
     return false;
   }
@@ -2075,11 +2104,13 @@ class CarManagerRomaniaCard extends HTMLElement {
         </label>
       `;
     }
-    const type = domain === "number" ? "number" : domain === "date" ? "date" : "text";
+    const type = domain === "date" ? "date" : domain === "number" ? "number" : "text";
+    const inputValue = domain === "date" ? this._formatDateInputValue(value) : value;
+    const placeholder = "";
     return `
       <label class="cmr-field">
         <span>${this._escape(label)}</span>
-        <input type="${type}" value="${this._escape(value)}" data-entity="${entity.entityId}" data-domain="${domain}">
+        <input type="${type}" value="${this._escape(inputValue)}" data-entity="${entity.entityId}" data-domain="${domain}"${placeholder}>
       </label>
     `;
   }
@@ -2088,9 +2119,9 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <div class="cmr-row ${cls || ""}">
         <div class="cmr-row-label">${this._escape(label)}</div>
-        <div class="cmr-row-value">${this._escape(value || "—")}</div>
-        ${middle ? `<div class="cmr-row-muted">${this._escape(middle)}</div>` : ""}
-        ${right ? `<div class="cmr-row-muted">${this._escape(right)}</div>` : ""}
+        <div class="cmr-row-value">${this._escape(this._formatDisplayValue(value || "—"))}</div>
+        ${middle ? `<div class="cmr-row-muted">${this._escape(this._formatDisplayValue(middle))}</div>` : ""}
+        ${right ? `<div class="cmr-row-muted">${this._escape(this._formatDisplayValue(right))}</div>` : ""}
       </div>
     `;
   }
@@ -2655,7 +2686,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const data = new FormData(form);
     this._serviceRecordDrafts[vehicleKey] = {
       record_type: (data.get("record_type") || "service").toString(),
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "0").toString(),
       title: (data.get("title") || "").toString(),
       service_name: (data.get("service_name") || "").toString(),
@@ -2805,9 +2836,9 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>CCA / curent pornire</span><input type="number" name="cca" min="0" step="1" value="${this._escape(draft.cca || "0")}"></label>
           <label class="cmr-field"><span>Polaritate</span><input type="text" name="polarity" value="${this._escape(draft.polarity || "")}" placeholder="ex. dreapta +"></label>
           <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(draft.size || "")}" placeholder="ex. 278x175x190"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(draft.install_date || "")}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(this._formatDateInputValue(draft.install_date || ""))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="install_km" min="0" step="1" value="${this._escape(draft.install_km || "0")}"></label>
-          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(draft.warranty_until || "")}"></label>
+          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(this._formatDateInputValue(draft.warranty_until || ""))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
         </div>
         <label class="cmr-check"><input type="checkbox" name="installed" ${draft.installed === false ? "" : "checked"}> Montată acum</label>
@@ -2828,7 +2859,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const editOpen = batteryId && this._batteryEditOpen.has(batteryId);
     const title = [item.brand_model || "Baterie", item.battery_type_label || ""].filter(Boolean).join(" · ");
     const specs = [item.capacity_ah ? `${item.capacity_ah} Ah` : "", item.cca ? `${item.cca} CCA` : "", item.size || "", item.polarity || ""].filter(Boolean).join(" · ");
-    const meta = [item.installed ? "montată acum" : "nemontată", item.install_date ? `montată ${item.install_date}` : "fără dată montare", item.warranty_until ? `garanție ${item.warranty_until}` : "fără garanție", item.status_label || ""].filter(Boolean).join(" · ");
+    const meta = [item.installed ? "montată acum" : "nemontată", item.install_date ? `montată ${this._formatDateForDisplay(item.install_date)}` : "fără dată montare", item.warranty_until ? `garanție ${this._formatDateForDisplay(item.warranty_until)}` : "fără garanție", item.status_label || ""].filter(Boolean).join(" · ");
     return `
       <div class="cmr-cost-item cmr-cost-item-block">
         <div class="cmr-cost-item-main">
@@ -2863,9 +2894,9 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>CCA / curent pornire</span><input type="number" name="cca" min="0" step="1" value="${this._escape(value("cca", "0"))}"></label>
           <label class="cmr-field"><span>Polaritate</span><input type="text" name="polarity" value="${this._escape(value("polarity"))}"></label>
           <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(value("size"))}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(value("install_date"))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(this._formatDateInputValue(value("install_date")))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="install_km" min="0" step="1" value="${this._escape(value("install_km", "0"))}"></label>
-          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(value("warranty_until"))}"></label>
+          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(this._formatDateInputValue(value("warranty_until")))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
         </div>
         <label class="cmr-check"><input type="checkbox" name="installed" ${installed ? "checked" : ""}> Montată acum</label>
@@ -2899,9 +2930,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       cca: (data.get("cca") || "0").toString(),
       polarity: (data.get("polarity") || "").toString(),
       size: (data.get("size") || "").toString(),
-      install_date: (data.get("install_date") || "").toString(),
+      install_date: this._formDate(data, "install_date"),
       install_km: (data.get("install_km") || "0").toString(),
-      warranty_until: (data.get("warranty_until") || "").toString(),
+      warranty_until: this._formDate(data, "warranty_until"),
       cost: (data.get("cost") || "0").toString(),
       notes: (data.get("notes") || "").toString(),
     };
@@ -2933,9 +2964,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       cca: Number(data.get("cca") || 0),
       polarity: (data.get("polarity") || "").toString().trim(),
       size: (data.get("size") || "").toString().trim(),
-      install_date: (data.get("install_date") || "").toString(),
+      install_date: this._formDate(data, "install_date"),
       install_km: Number(data.get("install_km") || 0),
-      warranty_until: (data.get("warranty_until") || "").toString(),
+      warranty_until: this._formDate(data, "warranty_until"),
       cost: Number(data.get("cost") || 0),
       notes: (data.get("notes") || "").toString().trim(),
     };
@@ -3159,8 +3190,8 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-add-grid">
           <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(draft.equipment_type)}</select></label>
           <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(draft.name || "")}" placeholder="ex. Trusă auto omologată"></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || "")}"></label>
-          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(draft.expiry_date || "")}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(draft.purchase_date || ""))}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(this._formatDateInputValue(draft.expiry_date || ""))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
           <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(draft.storage_location || "")}" placeholder="ex. portbagaj"></label>
         </div>
@@ -3232,7 +3263,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const itemId = item.item_id || "";
     const editOpen = itemId && this._equipmentEditOpen.has(itemId);
     const title = [item.equipment_type_label || "Echipament", item.name || ""].filter(Boolean).join(" · ");
-    const expiry = item.expiry_date ? `expiră ${item.expiry_date}` : "fără expirare";
+    const expiry = item.expiry_date ? `expiră ${this._formatDateForDisplay(item.expiry_date)}` : "fără expirare";
     const status = item.status || "—";
     const meta = [expiry, status, item.present ? "prezent" : "lipsă", item.storage_location || ""].filter(Boolean).join(" · ");
     return `
@@ -3264,8 +3295,8 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-add-grid">
           <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(value("equipment_type", "first_aid_kit"))}</select></label>
           <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(value("name"))}"></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
-          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(value("expiry_date"))}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(value("purchase_date")))}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(this._formatDateInputValue(value("expiry_date")))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
           <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(value("storage_location"))}"></label>
         </div>
@@ -3299,8 +3330,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       size: (data.get("size") || "").toString(),
       dot: (data.get("dot") || "").toString(),
       quantity: (data.get("quantity") || "4").toString(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      last_mount_date: this._formDate(data, "last_mount_date"),
       last_mount_km: (data.get("last_mount_km") || "0").toString(),
       total_km: (data.get("total_km") || "0").toString(),
       cost: (data.get("cost") || "0").toString(),
@@ -3338,8 +3369,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       size: (data.get("size") || "").toString().trim(),
       dot: (data.get("dot") || "").toString().trim(),
       quantity: Math.round(Number(data.get("quantity") || 4)),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      last_mount_date: this._formDate(data, "last_mount_date"),
       last_mount_km: Math.round(Number(data.get("last_mount_km") || 0)),
       total_km: Math.round(Number(data.get("total_km") || 0)),
       cost: Number(data.get("cost") || 0),
@@ -3496,8 +3527,8 @@ class CarManagerRomaniaCard extends HTMLElement {
     return {
       equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
       name: (data.get("name") || "").toString(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      expiry_date: (data.get("expiry_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      expiry_date: this._formDate(data, "expiry_date"),
       cost: (data.get("cost") || "0").toString(),
       present: data.get("present") === "on",
       ignored: false,
@@ -3525,8 +3556,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       vehicle_id: form.dataset.vehicleRef || form.dataset.vehicle,
       equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
       name: (data.get("name") || "").toString().trim(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      expiry_date: (data.get("expiry_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      expiry_date: this._formDate(data, "expiry_date"),
       cost: Number(data.get("cost") || 0),
       present: data.get("present") === "on",
       ignored: false,
@@ -3607,7 +3638,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const vehicleKey = form.dataset.vehicle;
     const data = new FormData(form);
     this._fuelReceiptDrafts[vehicleKey] = {
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "").toString(),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: (data.get("quantity") || "").toString(),
@@ -3624,7 +3655,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (!receiptId) return;
     const data = new FormData(form);
     this._fuelReceiptEditDrafts[receiptId] = {
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "").toString(),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: (data.get("quantity") || "").toString(),
@@ -3708,7 +3739,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const data = new FormData(form);
     const payload = {
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: Number(data.get("quantity") || 0),
@@ -3748,7 +3779,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const payload = {
       receipt_id: receiptId,
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: Number(data.get("quantity") || 0),
@@ -3865,7 +3896,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const payload = {
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
       record_type: (data.get("record_type") || "custom").toString(),
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       title: (data.get("title") || "").toString().trim(),
       service_name: (data.get("service_name") || "").toString().trim(),
@@ -4103,7 +4134,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (domain === "number") {
       this._hass.callService("number", "set_value", { value: Number(value || 0) }, { entity_id: entityId });
     } else if (domain === "date") {
-      this._hass.callService("date", "set_value", { date: value || null }, { entity_id: entityId });
+      this._hass.callService("date", "set_value", { date: this._parseDateInputValue(value) || null }, { entity_id: entityId });
     } else if (domain === "text") {
       this._hass.callService("text", "set_value", { value }, { entity_id: entityId });
     }
@@ -4123,9 +4154,9 @@ class CarManagerRomaniaCard extends HTMLElement {
     const itpStatus = this._findSensorByName(vehicle, ["itp", "status"]);
     const itpDays = this._findSensorByName(vehicle, ["itp", "zile", "ramase"]);
     const itpExpiry = this._findByName(vehicle, ["itp", "expir"]);
-    const rovStatus = this._findSensorByName(vehicle, ["roviniet"], ["zile", "expir", "serie", "categorie", "perioad"]);
-    const rovDays = this._findSensorByName(vehicle, ["roviniet", "zile", "ramase"]);
-    const rovExpiry = this._findByName(vehicle, ["roviniet", "expir"]);
+    const rovStatus = this._findRovinietaStatus(vehicle);
+    const rovDays = this._findRovinietaDays(vehicle);
+    const rovExpiry = this._findRovinietaExpiry(vehicle);
 
     return {
       km: this._entityValue(km),
@@ -4134,16 +4165,16 @@ class CarManagerRomaniaCard extends HTMLElement {
       serviceKm: this._formatKm(this._entityValue(serviceKm)),
       rcaStatus: this._entityValue(rcaStatus),
       rcaDays: this._formatDays(this._entityValue(rcaDays)),
-      rcaExpiry: this._entityValue(rcaExpiry),
+      rcaExpiry: this._formatDateForDisplay(this._entityValue(rcaExpiry)),
       cascoStatus: this._entityValue(cascoStatus),
       cascoDays: this._formatDays(this._entityValue(cascoDays)),
-      cascoExpiry: this._entityValue(cascoExpiry),
+      cascoExpiry: this._formatDateForDisplay(this._entityValue(cascoExpiry)),
       itpStatus: this._entityValue(itpStatus),
       itpDays: this._formatDays(this._entityValue(itpDays)),
-      itpExpiry: this._entityValue(itpExpiry),
+      itpExpiry: this._formatDateForDisplay(this._entityValue(itpExpiry)),
       rovinietaStatus: this._entityValue(rovStatus),
       rovinietaDays: this._formatDays(this._entityValue(rovDays)),
-      rovinietaExpiry: this._entityValue(rovExpiry),
+      rovinietaExpiry: this._formatDateForDisplay(this._entityValue(rovExpiry)),
     };
   }
 
@@ -4152,6 +4183,63 @@ class CarManagerRomaniaCard extends HTMLElement {
     const found = this._findByName(vehicle, terms, excludeTerms, (entity) => entity.entityId.startsWith("sensor."));
     if (found) return found;
     return this._findByName(vehicle, terms, excludeTerms);
+  }
+
+  _findRovinietaStatus(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet"],
+      ["zile", "expir", "serie", "categorie", "perioad"],
+      (entity) => entity.entityId.startsWith("sensor.") && this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto)) return auto;
+
+    return this._findByName(
+      vehicle,
+      ["roviniet", "status"],
+      ["zile", "expir", "serie", "categorie", "perioad"],
+      (entity) => entity.entityId.startsWith("sensor."),
+    );
+  }
+
+  _findRovinietaDays(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet", "zile", "ramase"],
+      [],
+      (entity) => entity.entityId.startsWith("sensor.") && this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto) !== null) return auto;
+
+    return this._findByName(
+      vehicle,
+      ["roviniet", "zile", "ramase"],
+      [],
+      (entity) => entity.entityId.startsWith("sensor."),
+    );
+  }
+
+  _findRovinietaExpiry(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet", "expir"],
+      [],
+      (entity) => this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto)) return auto;
+
+    return this._findByName(vehicle, ["roviniet", "expir"]);
+  }
+
+  _isAutoRovinietaEntity(entity) {
+    const attrs = entity.stateObj?.attributes || {};
+    return Boolean(
+      attrs.numar_inmatriculare ||
+      attrs.serie_rovinieta ||
+      attrs.categorie_rovinieta ||
+      attrs.numar_total_roviniete !== undefined ||
+      attrs.detalii_rovinieta_activa
+    );
   }
 
   _findMaintenanceRemainingDays(vehicle, key) {
@@ -4425,9 +4513,32 @@ class CarManagerRomaniaCard extends HTMLElement {
     return this._normalize(summary?.cascoStatus || "") !== "neconfigurat";
   }
 
+
+  _formatDisplayValue(value) {
+    return this._formatDateForDisplay(value);
+  }
+
+  _formatDateForDisplay(value) {
+    if (value === undefined || value === null) return value;
+    const text = value.toString().trim();
+    if (!text) return text;
+
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (isoMatch) {
+      return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    }
+
+    const roMatch = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (roMatch) {
+      return `${roMatch[1].padStart(2, "0")}/${roMatch[2].padStart(2, "0")}/${roMatch[3]}`;
+    }
+
+    return text;
+  }
+
   _formatMain(value) {
     if (value === undefined || value === null || value === "") return "—";
-    return value;
+    return this._formatDisplayValue(value);
   }
 
   _statusClass(value) {
