@@ -211,7 +211,6 @@ class CarManagerRomaniaCard extends HTMLElement {
       };
     }
 
-    const allowedKey = this._vehicleAccessKey(allVehicles[0]);
     const active = [];
     const locked = [];
     const allIndexes = new Map();
@@ -222,14 +221,18 @@ class CarManagerRomaniaCard extends HTMLElement {
 
     for (const vehicle of visibleVehicles) {
       const key = this._vehicleAccessKey(vehicle);
-      if (key && key === allowedKey) {
-        active.push(vehicle);
-      } else {
+      if (this._isLicenseBlockedVehicle(vehicle)) {
         locked.push({ vehicle, index: (allIndexes.get(key) ?? 0) + 1 });
+      } else {
+        active.push(vehicle);
       }
     }
 
     return { active, locked };
+  }
+
+  _isLicenseBlockedVehicle(vehicle) {
+    return Boolean(vehicle?.license_blocked || vehicle?.entities?.some(({ stateObj }) => (stateObj.attributes || {}).license_blocked));
   }
 
   _vehicleSubtitle(activeCount, lockedCount) {
@@ -292,6 +295,9 @@ class CarManagerRomaniaCard extends HTMLElement {
     }
 
     group.vehicle_id = group.vehicle_id || this._vehicleIdFromEntityRegistry(group.entities[0]?.registry || {}, group.entities[0]?.entityId || "") || group.key;
+    group.license_blocked = Boolean(group.license_blocked)
+      || group.entities.some(({ stateObj }) => (stateObj.attributes || {}).license_blocked)
+      || this._shouldTreatUnavailableGroupAsLicenseLocked(group);
     group.label = group.label || group.plate || "Autovehicul";
     group.entities.sort((a, b) => this._friendly(a).localeCompare(this._friendly(b), "ro"));
     return group;
@@ -4288,10 +4294,6 @@ class CarManagerRomaniaCard extends HTMLElement {
   _isConfiguredVehicleGroup(group) {
     const label = this._normalize(group.label || "");
     if (!group.entities.length) return false;
-    // După dezactivarea unui autovehicul, Home Assistant păstrează în registry
-    // entitățile vechi ca unavailable. Nu le mai tratăm ca autovehicule active,
-    // altfel cardul afișează o mașină goală și ascunde fluxul de reactivare.
-    if (!group.hasAvailableEntity) return false;
     if (label.includes("e-rovinieta") || label === "rovinieta" || label.includes("rovinieta.ro")) return false;
     if (label.includes("car manager romania") && !group.plate) return false;
 
@@ -4301,8 +4303,38 @@ class CarManagerRomaniaCard extends HTMLElement {
       return name.includes("kilometri") || name.endsWith(" status") || name.includes("revizie") || name.includes("rca") || name.includes("itp");
     });
     const onlyRovinieta = group.entities.every((entity) => this._normalize(this._friendly(entity)).includes("roviniet"));
+    const looksLikeVehicle = hasPlate || (hasCoreVehicleEntity && !onlyRovinieta);
+    if (!looksLikeVehicle) return false;
 
-    return hasPlate || (hasCoreVehicleEntity && !onlyRovinieta);
+    const isLicenseBlocked = group.entities.some((entity) => (entity.stateObj.attributes || {}).license_blocked);
+    const inferredLicenseBlocked = this._shouldTreatUnavailableGroupAsLicenseLocked(group);
+    if (inferredLicenseBlocked) group.license_blocked = true;
+
+    // După dezactivarea manuală a unui autovehicul, Home Assistant păstrează
+    // entitățile vechi ca unavailable. Le ascundem doar dacă NU sunt blocate
+    // de licență; autovehiculele blocate de licență trebuie să rămână vizibile
+    // în card ca placeholder.
+    if (!group.hasAvailableEntity && !isLicenseBlocked && !inferredLicenseBlocked) return false;
+
+    return true;
+  }
+
+  _shouldTreatUnavailableGroupAsLicenseLocked(group) {
+    if (this._licenseAllowsPremiumFeatures()) return false;
+    if (!group?.entities?.length) return false;
+    if (group.hasAvailableEntity) return false;
+    if (group.entities.some((entity) => (entity.stateObj.attributes || {}).license_blocked)) return true;
+
+    const label = this._normalize(group.label || "");
+    if (label.includes("car manager romania") || label.includes("e-rovinieta") || label.includes("rovinieta.ro")) return false;
+
+    const hasVehicleIdentifiers = Boolean(group.vehicle_id || group.plate || group.vin || this._vehicleIdFromDevice(group.device || {}));
+    const hasCoreVehicleEntity = group.entities.some((entity) => {
+      const name = this._normalize(this._friendly(entity));
+      return name.includes("kilometri") || name.endsWith(" status") || name.includes("revizie") || name.includes("rca") || name.includes("itp") || name.includes("casco") || name.includes("roviniet");
+    });
+
+    return hasVehicleIdentifiers || hasCoreVehicleEntity;
   }
 
   _isTechnicalOrExternalRovinietaEntity(entityId, stateObj) {

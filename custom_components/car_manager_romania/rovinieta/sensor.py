@@ -6,13 +6,15 @@ from datetime import UTC
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .. import CarManagerConfigEntry
-from ..const import CONF_LICENSE_PLATE, CONF_NAME, CONF_VIN, DOMAIN, VERSION
+from ..const import CONF_LICENSE_PLATE, CONF_NAME, CONF_VIN, DOMAIN, VERSION, SIGNAL_LICENSE_UPDATED
 from .coordinator import CarManagerRovinietaCoordinator
+from ..license_access import async_license_allows_all_vehicles, locked_vehicle_attributes, vehicle_allowed_by_license
 from .helpers import slugify_plate
 from .models import VehicleData
 
@@ -100,19 +102,51 @@ class CarRovinietaBaseSensor(SensorEntity):
         self._car_vehicle = car_vehicle
         self._vehicle_id = car_vehicle["vehicle_id"]
         self._rovinieta_vehicle_id = rovinieta_vehicle_id
+        self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Register coordinator listener."""
+        """Register coordinator and license listeners."""
 
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_LICENSE_UPDATED,
+                self._schedule_license_refresh,
+            )
+        )
+        await self._async_refresh_license_gate(write_state=False)
+
+    @callback
+    def _schedule_license_refresh(self) -> None:
+        """Schedule a license-gate refresh."""
+
+        self.hass.async_create_task(self._async_refresh_license_gate())
+
+    async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
+        """Refresh the cached license gate used by sync entity properties."""
+
+        self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
+        if write_state:
+            self.async_write_ha_state()
+
+    @property
+    def _blocked_by_license(self) -> bool:
+        """Return True if this vehicle may not expose rovinieta data."""
+
+        return not vehicle_allowed_by_license(
+            self._entry,
+            self._vehicle_id,
+            self._license_allows_all_vehicles,
         )
 
     @property
     def available(self) -> bool:
         """Return availability."""
 
-        return self.rovinieta_vehicle is not None
+        return not self._blocked_by_license and self.rovinieta_vehicle is not None
 
     @property
     def rovinieta_vehicle(self) -> VehicleData | None:
@@ -144,6 +178,9 @@ class CarRovinietaBaseSensor(SensorEntity):
     @property
     def common_attributes(self) -> dict[str, Any]:
         """Return common rovinieta attributes."""
+
+        if self._blocked_by_license:
+            return locked_vehicle_attributes(self._vehicle_id)
 
         vehicle = self.rovinieta_vehicle
         if vehicle is None:

@@ -30,6 +30,7 @@ from .battery import battery_issues_for_vehicle
 from .legal import legal_days_remaining, legal_status, is_legal_ignored
 from .maintenance import maintenance_remaining_values, maintenance_status
 from .license import async_get_global_license, extract_stored_license_result, license_is_accepted
+from .license_access import first_enabled_vehicle_id
 from .rovinieta.models import VehicleData
 from .storage import CarManagerNotificationStore
 
@@ -556,15 +557,16 @@ async def async_check_maintenance_notifications(
 
     store = CarManagerNotificationStore(hass)
 
-    notifications_allowed = await _license_allows_notifications(hass)
-    if not notifications_allowed:
-        for vehicle in entry.runtime_data.vehicles:
-            vehicle_id = str(vehicle["vehicle_id"])
-            await _clear_vehicle_notifications(hass, store, vehicle_id)
-        return
+    license_allows_all = await _license_allows_notifications(hass)
+    first_vehicle_id = first_enabled_vehicle_id(entry)
 
     for vehicle in entry.runtime_data.vehicles:
         vehicle_id = str(vehicle["vehicle_id"])
+
+        if not license_allows_all and first_vehicle_id and vehicle_id != first_vehicle_id:
+            await _clear_vehicle_notifications(hass, store, vehicle_id)
+            continue
+
         await _clear_legacy_item_notifications(hass, store, vehicle_id)
 
         critical_items, warning_items = _build_vehicle_issue_summary(entry, vehicle)

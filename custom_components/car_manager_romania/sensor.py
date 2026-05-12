@@ -6,7 +6,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import EntityCategory, UnitOfLength
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -62,6 +62,7 @@ from .equipment import equipment_items_for_vehicle, current_year_equipment_cost_
 from .battery import battery_items_for_vehicle, current_battery_for_vehicle, current_year_battery_cost_total
 from .rovinieta.sensor import async_setup_rovinieta_sensors
 from .license import async_obtine_licenta_globala, mascheaza_cheia_licenta
+from .license_access import async_license_allows_all_vehicles, locked_vehicle_attributes, vehicle_allowed_by_license
 
 
 async def async_setup_entry(
@@ -313,9 +314,10 @@ class CarVehicleBaseSensor(SensorEntity):
         self._entry = entry
         self._vehicle = vehicle
         self._vehicle_id = vehicle["vehicle_id"]
+        self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to vehicle data updates."""
+        """Subscribe to vehicle and license data updates."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -324,6 +326,27 @@ class CarVehicleBaseSensor(SensorEntity):
                 self._handle_vehicles_updated,
             )
         )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_LICENSE_UPDATED,
+                self._schedule_license_refresh,
+            )
+        )
+        await self._async_refresh_license_gate(write_state=False)
+
+    @callback
+    def _schedule_license_refresh(self) -> None:
+        """Schedule a license-gate refresh."""
+
+        self.hass.async_create_task(self._async_refresh_license_gate())
+
+    async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
+        """Refresh the cached license gate used by sync entity properties."""
+
+        self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
+        if write_state:
+            self.async_write_ha_state()
 
     def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
         """Refresh cached vehicle data and update the entity state."""
@@ -333,6 +356,27 @@ class CarVehicleBaseSensor(SensorEntity):
                 self._vehicle = vehicle
                 self.async_write_ha_state()
                 break
+
+    @property
+    def _blocked_by_license(self) -> bool:
+        """Return True if this vehicle may not expose data."""
+
+        return not vehicle_allowed_by_license(
+            self._entry,
+            self._vehicle_id,
+            self._license_allows_all_vehicles,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+
+        return not self._blocked_by_license
+
+    def _locked_attributes(self) -> dict[str, Any]:
+        """Return neutral attributes for a locked vehicle."""
+
+        return locked_vehicle_attributes(self._vehicle_id)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -393,6 +437,9 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return vehicle attributes."""
+
+        if self._blocked_by_license:
+            return self._locked_attributes()
 
         attributes = {
             CONF_VEHICLE_ID: self._vehicle_id,
@@ -482,6 +529,9 @@ class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return upcoming expense details."""
+
+        if self._blocked_by_license:
+            return self._locked_attributes()
 
         items = upcoming_expense_items(
             self._entry,
@@ -594,6 +644,8 @@ class CarVehicleFuelAverageConsumptionSensor(CarVehicleBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        if self._blocked_by_license:
+            return self._locked_attributes()
         return {"intervals": fuel_consumption_intervals(self._entry, self._vehicle)[:10]}
 
 
@@ -958,6 +1010,9 @@ class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return legal term date attributes."""
 
+        if self._blocked_by_license:
+            return self._locked_attributes()
+
         return {
             "tip": self._label,
             "incepe_la": get_legal_value(
@@ -1013,6 +1068,9 @@ class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return legal term attributes without external lookups."""
+
+        if self._blocked_by_license:
+            return self._locked_attributes()
 
         return {
             "tip": self._label,

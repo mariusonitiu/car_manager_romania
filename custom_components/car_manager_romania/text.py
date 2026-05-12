@@ -7,11 +7,12 @@ from typing import Any
 
 from homeassistant.components.text import TextEntity
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.dispatcher import dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
 
 from . import CarManagerConfigEntry
 from .const import (
@@ -28,8 +29,10 @@ from .const import (
     DOMAIN,
     VERSION,
     SIGNAL_VEHICLES_UPDATED,
+    SIGNAL_LICENSE_UPDATED,
 )
 from .device import build_vehicle_device_info
+from .license_access import async_license_allows_all_vehicles, vehicle_allowed_by_license
 from .legal import get_legal_value, set_legal_value
 from .license import async_obtine_licenta_globala
 
@@ -159,6 +162,70 @@ class VehicleBaseText(TextEntity):
         self._entry = entry
         self._vehicle = vehicle
         self._vehicle_id = vehicle["vehicle_id"]
+        self._license_allows_all_vehicles = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to vehicle and license data updates."""
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_VEHICLES_UPDATED,
+                self._handle_vehicles_updated,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_LICENSE_UPDATED,
+                self._schedule_license_refresh,
+            )
+        )
+        await self._async_refresh_license_gate(write_state=False)
+
+    @callback
+    def _schedule_license_refresh(self) -> None:
+        """Schedule a license-gate refresh."""
+
+        self.hass.async_create_task(self._async_refresh_license_gate())
+
+    async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
+        """Refresh the cached license gate used by sync entity properties."""
+
+        self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
+        if write_state:
+            self.async_write_ha_state()
+
+    def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
+        """Refresh cached vehicle data and update the entity state."""
+
+        for vehicle in vehicles:
+            if vehicle.get("vehicle_id") == self._vehicle_id:
+                self._vehicle = vehicle
+                self.async_write_ha_state()
+                break
+
+    @property
+    def _blocked_by_license(self) -> bool:
+        """Return True if this vehicle may not expose or edit data."""
+
+        return not vehicle_allowed_by_license(
+            self._entry,
+            self._vehicle_id,
+            self._license_allows_all_vehicles,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return availability."""
+
+        return not self._blocked_by_license
+
+    def _raise_if_blocked_by_license(self) -> None:
+        """Reject edits for vehicles locked by license."""
+
+        if self._blocked_by_license:
+            raise HomeAssistantError("Autovehicul dezactivat fără licență activă.")
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -178,6 +245,8 @@ class VehicleBaseText(TextEntity):
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
         """Persist vehicles in Home Assistant storage and refresh runtime data."""
+
+        self._raise_if_blocked_by_license()
 
         await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
 
