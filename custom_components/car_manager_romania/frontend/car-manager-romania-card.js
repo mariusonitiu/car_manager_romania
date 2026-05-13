@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.53"; }
+  static get version() { return "1.0.60"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -460,7 +460,7 @@ class CarManagerRomaniaCard extends HTMLElement {
             <button class="cmr-action cmr-secondary" type="button" data-action="license-refresh">Actualizează status</button>
           </div>
           <div class="cmr-backup-note">Pentru trial poți lăsa valoarea <strong>TRIAL</strong>. După aplicare, cheia rămâne salvată local și în card este afișată doar mascat.</div>
-          ${!textEntity || !buttonEntity ? `<div class="cmr-message is-warn">Entitățile de licențiere nu sunt încă disponibile. După copierea fișierelor este necesar un restart Home Assistant.</div>` : ""}
+          ${!textEntity || !buttonEntity ? `<div class="cmr-message is-warn">Entitățile de licențiere nu sunt încă disponibile. Dacă este prima instalare, verifică dacă integrarea este adăugată în Devices & services, apoi fă refresh la card.</div>` : ""}
           ${this._licenseMessage ? `<div class="cmr-message">${this._escape(this._licenseMessage)}</div>` : ""}
         </form>
       </section>
@@ -479,31 +479,50 @@ class CarManagerRomaniaCard extends HTMLElement {
 
   _licenseEntity(domain, objectId) {
     const states = this._hass?.states || {};
-    const expectedObjectId = `car_manager_romania_${objectId}`;
-    const exactEntityId = `${domain}.${expectedObjectId}`;
-    if (states[exactEntityId]) return states[exactEntityId];
+
+    // Home Assistant poate genera entity_id-uri diferite în funcție de numele
+    // hub-ului/config entry-ului. La unele instalări entitățile sunt create cu
+    // prefixul car_manager_romania_, iar la altele cu prefixul car_manager_.
+    // Cardul trebuie să accepte ambele variante, fără redenumiri manuale.
+    const prefixes = ["car_manager_romania", "car_manager"];
+    const objectAliases = {
+      cod_licenta_noua: ["cod_licenta_noua", "cod_licenta_nou"],
+      cod_licenta_nou: ["cod_licenta_nou", "cod_licenta_noua"],
+    };
+    const wantedObjectIds = objectAliases[objectId] || [objectId];
+
+    for (const prefix of prefixes) {
+      for (const wantedObjectId of wantedObjectIds) {
+        const exactEntityId = `${domain}.${prefix}_${wantedObjectId}`;
+        if (states[exactEntityId]) return states[exactEntityId];
+      }
+    }
 
     const entries = Object.entries(states).filter(([entityId]) => {
-      if (!entityId.startsWith(`${domain}.car_manager_romania_`)) return false;
+      if (!entityId.startsWith(`${domain}.`)) return false;
       const objectPart = entityId.split(".")[1] || "";
-      return !objectPart.startsWith("utilitati_romania_");
+      if (objectPart.startsWith("utilitati_romania_")) return false;
+      return prefixes.some((prefix) => objectPart === prefix || objectPart.startsWith(`${prefix}_`));
     });
 
-    // Nu rezolvăm niciodată după sufix generic. Acceptăm doar entități care
-    // aparțin clar domeniului car_manager_romania, inclusiv variante păstrate
-    // de HA cu _2, _3 sau obiecte generate ușor diferit din numele entității.
+    // Nu rezolvăm după sufix generic. Acceptăm doar entități care aparțin clar
+    // de Car Manager, inclusiv variante păstrate de HA cu _2, _3.
     const byObjectId = entries.find(([entityId]) => {
       const objectPart = entityId.split(".")[1] || "";
-      if (objectPart === expectedObjectId) return true;
-      if (!objectPart.startsWith(`${expectedObjectId}_`)) return false;
-      const suffix = objectPart.slice(expectedObjectId.length + 1);
-      return /^\d+$/.test(suffix);
+      return prefixes.some((prefix) => wantedObjectIds.some((wantedObjectId) => {
+        const expectedObjectId = `${prefix}_${wantedObjectId}`;
+        if (objectPart === expectedObjectId) return true;
+        if (!objectPart.startsWith(`${expectedObjectId}_`)) return false;
+        const suffix = objectPart.slice(expectedObjectId.length + 1);
+        return /^\d+$/.test(suffix);
+      }));
     });
     if (byObjectId) return byObjectId[1];
 
     const normalizedWanted = this._normalize(objectId);
     const aliases = {
       cod_licenta_noua: ["cod licenta nou", "cod licenta noua", "license key", "licenta nou"],
+      cod_licenta_nou: ["cod licenta nou", "cod licenta noua", "license key", "licenta nou"],
       aplica_licenta: ["aplica licenta", "aplicare licenta", "apply license"],
       actualizeaza_status_licenta: ["actualizeaza status licenta", "actualizare status licenta", "refresh license", "revalidate license"],
       status_licenta: ["status licenta"],
@@ -515,7 +534,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       mesaj_licenta: ["mesaj licenta"],
     };
 
-    const allowedNames = [normalizedWanted, ...(aliases[objectId] || [])].map((value) => this._normalize(value));
+    const allowedNames = [
+      normalizedWanted,
+      ...wantedObjectIds.map((value) => this._normalize(value)),
+      ...(aliases[objectId] || []),
+    ].map((value) => this._normalize(value));
+
     const byFriendlyName = entries.find(([, stateObj]) => {
       const friendlyName = this._normalize(stateObj?.attributes?.friendly_name || "");
       return allowedNames.some((name) => friendlyName === name || friendlyName.endsWith(` ${name}`));
@@ -523,8 +547,18 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (byFriendlyName) return byFriendlyName[1];
 
     const bySafeObjectPart = entries.find(([entityId]) => {
-      const objectPart = this._normalize((entityId.split(".")[1] || "").replace(/^car_manager_romania_/, ""));
-      return allowedNames.some((name) => objectPart === name.replaceAll(" ", "_") || objectPart.includes(name.replaceAll(" ", "_")));
+      let objectPart = entityId.split(".")[1] || "";
+      for (const prefix of prefixes) {
+        if (objectPart.startsWith(`${prefix}_`)) {
+          objectPart = objectPart.slice(prefix.length + 1);
+          break;
+        }
+      }
+      objectPart = this._normalize(objectPart);
+      return allowedNames.some((name) => {
+        const slug = name.replaceAll(" ", "_");
+        return objectPart === slug || objectPart.includes(slug);
+      });
     });
     if (bySafeObjectPart) return bySafeObjectPart[1];
 
@@ -537,7 +571,11 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (direct?.entity_id) return direct;
 
     const states = this._hass?.states || {};
-    const entries = Object.entries(states).filter(([entityId]) => entityId.startsWith("button.car_manager_romania_"));
+    const entries = Object.entries(states).filter(([entityId]) => {
+      if (!entityId.startsWith("button.")) return false;
+      const objectPart = entityId.split(".")[1] || "";
+      return objectPart.startsWith("car_manager_romania_") || objectPart.startsWith("car_manager_");
+    });
 
     const matchesRefresh = ([entityId, stateObj]) => {
       const objectPart = this._normalize(entityId.split(".")[1] || "");
