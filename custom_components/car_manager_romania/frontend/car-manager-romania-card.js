@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "v1.0.61b1"; }
+  static get version() { return "v1.0.61b2"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -1071,9 +1071,58 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _vehicleFuelProfile(vehicle) {
-    const entity = vehicle.entities.find((item) => item.entityId?.startsWith("text.") && this._normalize(this._friendly(item)).includes("motorizare"));
-    const value = (entity?.stateObj?.state || "diesel").toString();
-    return this._normalizeFuelProfile(value);
+    const extractValue = (entity) => {
+      if (!entity) return "";
+      const state = (entity.stateObj?.state ?? "").toString().trim();
+      return state && state !== "unknown" && state !== "unavailable" ? state : "";
+    };
+
+    const isFuelProfileEntity = (entity) => {
+      const entityId = this._normalize(entity?.entityId || "");
+      const name = this._normalize(this._friendly(entity || {}));
+      return entityId.includes("motorizare")
+        || entityId.includes("fuel_profile")
+        || name.includes("motorizare")
+        || name.includes("motorizar")
+        || name.includes("fuel profile");
+    };
+
+    const localEntity = (vehicle.entities || []).find((entity) => entity.entityId?.startsWith("text.") && isFuelProfileEntity(entity));
+    const localValue = extractValue(localEntity);
+    if (localValue) return this._normalizeFuelProfile(localValue);
+
+    const vehicleKeys = [
+      vehicle.vehicle_id,
+      vehicle.key,
+      vehicle.label,
+      vehicle.plate,
+      vehicle.vin,
+    ].filter(Boolean).map((value) => this._normalize(value));
+
+    const candidate = Object.entries(this._hass?.states || {}).find(([entityId, stateObj]) => {
+      if (!entityId.startsWith("text.")) return false;
+      const registry = this._hass?.entities?.[entityId] || {};
+      if (registry.platform && registry.platform !== "car_manager_romania") return false;
+
+      const probe = { entityId, stateObj, registry };
+      if (!isFuelProfileEntity(probe)) return false;
+
+      const attrs = stateObj.attributes || {};
+      const haystack = [
+        entityId,
+        attrs.friendly_name,
+        attrs.vehicle_id,
+        attrs.license_plate,
+        attrs.vin,
+        attrs.name,
+        registry.unique_id,
+      ].filter(Boolean).map((value) => this._normalize(value));
+
+      return vehicleKeys.some((key) => key && haystack.some((value) => value.includes(key) || key.includes(value)));
+    });
+
+    const fallbackValue = extractValue(candidate ? { entityId: candidate[0], stateObj: candidate[1] } : null);
+    return this._normalizeFuelProfile(fallbackValue || "diesel");
   }
 
   _normalizeFuelProfile(value) {
@@ -4432,21 +4481,37 @@ class CarManagerRomaniaCard extends HTMLElement {
 
   _isHubOrAdminGroup(group) {
     const model = this._normalize(group.device?.model || "");
-    if (model === "hub") return true;
-
     const label = this._normalize(group.label || group.device?.name || "");
-    const hasVehicleData = Boolean(group.plate || group.vin)
+    const key = this._normalize(group.key || "");
+    const vehicleId = this._normalize(group.vehicle_id || this._vehicleIdFromDevice(group.device || {}) || "");
+
+    const adminLabels = new Set([
+      "car manager",
+      "car manager romania",
+      "car manager românia",
+      "hub",
+      "administrare integrare",
+    ]);
+    const adminIds = new Set(["car_manager", "car_manager_romania", "hub", "license", "licenta"]);
+
+    const hasPlateOrVin = Boolean(group.plate || group.vin)
       || (group.entities || []).some((entity) => {
         const attrs = entity.stateObj?.attributes || {};
-        return Boolean(attrs.vehicle_id || attrs.license_plate || attrs.vin);
+        return Boolean(attrs.license_plate || attrs.vin);
       });
 
-    if (hasVehicleData) return false;
+    if (model === "hub") return true;
+    if (!hasPlateOrVin && (adminLabels.has(label) || adminIds.has(vehicleId) || adminIds.has(key))) return true;
+
+    const hasOnlyGenericVehicleId = !hasPlateOrVin && (vehicleId === "car_manager" || vehicleId === "car_manager_romania" || key === "car_manager" || key === "car_manager_romania");
+    if (hasOnlyGenericVehicleId) return true;
 
     const hasAdminOrLicenseEntity = (group.entities || []).some((entity) => {
       const entityId = this._normalize(entity.entityId || "");
       const name = this._normalize(this._friendly(entity));
       return entityId.includes("licenta")
+        || entityId.includes("license")
+        || entityId.includes("numar_autovehicule")
         || name.includes("licenta")
         || name.includes("numar autovehicule")
         || name.includes("actualizeaza status")
@@ -4454,7 +4519,7 @@ class CarManagerRomaniaCard extends HTMLElement {
         || name.includes("actualizeaza rovinieta");
     });
 
-    return hasAdminOrLicenseEntity || label === "car manager" || label === "car manager romania";
+    return !hasPlateOrVin && hasAdminOrLicenseEntity;
   }
 
   _isInactiveVehicleGroup(group) {
@@ -4486,7 +4551,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const label = this._normalize(group.label || "");
     if (!group.entities.length) return false;
     if (label.includes("e-rovinieta") || label === "rovinieta" || label.includes("rovinieta.ro")) return false;
-    if (label.includes("car manager romania") && !group.plate) return false;
+    if ((label === "car manager" || label.includes("car manager romania") || label.includes("car manager românia")) && !group.plate && !group.vin) return false;
     if (this._isHubOrAdminGroup(group)) return false;
 
     const hasPlate = Boolean(group.plate);
