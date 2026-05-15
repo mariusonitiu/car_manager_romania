@@ -15,8 +15,11 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatche
 
 from . import CarManagerConfigEntry
 from .const import (
+    LEGAL_DATA_SOURCE,
     LEGAL_END_DATE,
+    LEGAL_SOURCE_MANUAL,
     LEGAL_START_DATE,
+    LEGAL_TYPE_ROVINIETA,
     LEGAL_TYPES,
     MAINTENANCE_LAST_DATE,
     MAINTENANCE_TYPES,
@@ -304,6 +307,13 @@ class VehicleLegalDate(VehicleBaseDate):
                     self._field,
                     value.isoformat(),
                 )
+                if self._legal_type == LEGAL_TYPE_ROVINIETA:
+                    set_legal_value(
+                        vehicle,
+                        self._legal_type,
+                        LEGAL_DATA_SOURCE,
+                        LEGAL_SOURCE_MANUAL,
+                    )
                 break
 
         await self._persist_vehicles(vehicles)

@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "1.0.61b3"; }
+  static get version() { return "v1.0.61b3"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -463,7 +463,7 @@ class CarManagerRomaniaCard extends HTMLElement {
             <button class="cmr-action cmr-secondary" type="button" data-action="license-refresh">Actualizează status</button>
           </div>
           <div class="cmr-backup-note">Pentru trial poți lăsa valoarea <strong>TRIAL</strong>. După aplicare, cheia rămâne salvată local și în card este afișată doar mascat.</div>
-          ${!textEntity || !buttonEntity ? `<div class="cmr-message is-warn">Entitățile de licențiere nu sunt încă disponibile. După copierea fișierelor este necesar un restart Home Assistant.</div>` : ""}
+          ${!textEntity || !buttonEntity ? `<div class="cmr-message is-warn">Entitățile de licențiere nu sunt încă disponibile. Dacă este prima instalare, verifică dacă integrarea este adăugată în Devices & services, apoi fă refresh la card.</div>` : ""}
           ${this._licenseMessage ? `<div class="cmr-message">${this._escape(this._licenseMessage)}</div>` : ""}
         </form>
       </section>
@@ -482,31 +482,50 @@ class CarManagerRomaniaCard extends HTMLElement {
 
   _licenseEntity(domain, objectId) {
     const states = this._hass?.states || {};
-    const expectedObjectId = `car_manager_romania_${objectId}`;
-    const exactEntityId = `${domain}.${expectedObjectId}`;
-    if (states[exactEntityId]) return states[exactEntityId];
+
+    // Home Assistant poate genera entity_id-uri diferite în funcție de numele
+    // hub-ului/config entry-ului. La unele instalări entitățile sunt create cu
+    // prefixul car_manager_romania_, iar la altele cu prefixul car_manager_.
+    // Cardul trebuie să accepte ambele variante, fără redenumiri manuale.
+    const prefixes = ["car_manager_romania", "car_manager"];
+    const objectAliases = {
+      cod_licenta_noua: ["cod_licenta_noua", "cod_licenta_nou"],
+      cod_licenta_nou: ["cod_licenta_nou", "cod_licenta_noua"],
+    };
+    const wantedObjectIds = objectAliases[objectId] || [objectId];
+
+    for (const prefix of prefixes) {
+      for (const wantedObjectId of wantedObjectIds) {
+        const exactEntityId = `${domain}.${prefix}_${wantedObjectId}`;
+        if (states[exactEntityId]) return states[exactEntityId];
+      }
+    }
 
     const entries = Object.entries(states).filter(([entityId]) => {
-      if (!entityId.startsWith(`${domain}.car_manager_romania_`)) return false;
+      if (!entityId.startsWith(`${domain}.`)) return false;
       const objectPart = entityId.split(".")[1] || "";
-      return !objectPart.startsWith("utilitati_romania_");
+      if (objectPart.startsWith("utilitati_romania_")) return false;
+      return prefixes.some((prefix) => objectPart === prefix || objectPart.startsWith(`${prefix}_`));
     });
 
-    // Nu rezolvăm niciodată după sufix generic. Acceptăm doar entități care
-    // aparțin clar domeniului car_manager_romania, inclusiv variante păstrate
-    // de HA cu _2, _3 sau obiecte generate ușor diferit din numele entității.
+    // Nu rezolvăm după sufix generic. Acceptăm doar entități care aparțin clar
+    // de Car Manager, inclusiv variante păstrate de HA cu _2, _3.
     const byObjectId = entries.find(([entityId]) => {
       const objectPart = entityId.split(".")[1] || "";
-      if (objectPart === expectedObjectId) return true;
-      if (!objectPart.startsWith(`${expectedObjectId}_`)) return false;
-      const suffix = objectPart.slice(expectedObjectId.length + 1);
-      return /^\d+$/.test(suffix);
+      return prefixes.some((prefix) => wantedObjectIds.some((wantedObjectId) => {
+        const expectedObjectId = `${prefix}_${wantedObjectId}`;
+        if (objectPart === expectedObjectId) return true;
+        if (!objectPart.startsWith(`${expectedObjectId}_`)) return false;
+        const suffix = objectPart.slice(expectedObjectId.length + 1);
+        return /^\d+$/.test(suffix);
+      }));
     });
     if (byObjectId) return byObjectId[1];
 
     const normalizedWanted = this._normalize(objectId);
     const aliases = {
       cod_licenta_noua: ["cod licenta nou", "cod licenta noua", "license key", "licenta nou"],
+      cod_licenta_nou: ["cod licenta nou", "cod licenta noua", "license key", "licenta nou"],
       aplica_licenta: ["aplica licenta", "aplicare licenta", "apply license"],
       actualizeaza_status_licenta: ["actualizeaza status licenta", "actualizare status licenta", "refresh license", "revalidate license"],
       status_licenta: ["status licenta"],
@@ -518,7 +537,12 @@ class CarManagerRomaniaCard extends HTMLElement {
       mesaj_licenta: ["mesaj licenta"],
     };
 
-    const allowedNames = [normalizedWanted, ...(aliases[objectId] || [])].map((value) => this._normalize(value));
+    const allowedNames = [
+      normalizedWanted,
+      ...wantedObjectIds.map((value) => this._normalize(value)),
+      ...(aliases[objectId] || []),
+    ].map((value) => this._normalize(value));
+
     const byFriendlyName = entries.find(([, stateObj]) => {
       const friendlyName = this._normalize(stateObj?.attributes?.friendly_name || "");
       return allowedNames.some((name) => friendlyName === name || friendlyName.endsWith(` ${name}`));
@@ -526,8 +550,18 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (byFriendlyName) return byFriendlyName[1];
 
     const bySafeObjectPart = entries.find(([entityId]) => {
-      const objectPart = this._normalize((entityId.split(".")[1] || "").replace(/^car_manager_romania_/, ""));
-      return allowedNames.some((name) => objectPart === name.replaceAll(" ", "_") || objectPart.includes(name.replaceAll(" ", "_")));
+      let objectPart = entityId.split(".")[1] || "";
+      for (const prefix of prefixes) {
+        if (objectPart.startsWith(`${prefix}_`)) {
+          objectPart = objectPart.slice(prefix.length + 1);
+          break;
+        }
+      }
+      objectPart = this._normalize(objectPart);
+      return allowedNames.some((name) => {
+        const slug = name.replaceAll(" ", "_");
+        return objectPart === slug || objectPart.includes(slug);
+      });
     });
     if (bySafeObjectPart) return bySafeObjectPart[1];
 
@@ -540,7 +574,11 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (direct?.entity_id) return direct;
 
     const states = this._hass?.states || {};
-    const entries = Object.entries(states).filter(([entityId]) => entityId.startsWith("button.car_manager_romania_"));
+    const entries = Object.entries(states).filter(([entityId]) => {
+      if (!entityId.startsWith("button.")) return false;
+      const objectPart = entityId.split(".")[1] || "";
+      return objectPart.startsWith("car_manager_romania_") || objectPart.startsWith("car_manager_");
+    });
 
     const matchesRefresh = ([entityId, stateObj]) => {
       const objectPart = this._normalize(entityId.split(".")[1] || "");
@@ -1092,9 +1130,38 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _dateParts(value) {
-    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+    const iso = String(value || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (iso) return { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) };
+
+    const ro = String(value || "").trim().match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (ro) return { year: Number(ro[3]), month: Number(ro[2]), day: Number(ro[1]) };
+
+    return null;
+  }
+
+  _formatDateInputValue(value) {
+    return this._parseDateInputValue(value || "");
+  }
+
+  _parseDateInputValue(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+    const ro = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (ro) {
+      const day = ro[1].padStart(2, "0");
+      const month = ro[2].padStart(2, "0");
+      return `${ro[3]}-${month}-${day}`;
+    }
+
+    return text;
+  }
+
+  _formDate(data, name) {
+    return this._parseDateInputValue((data.get(name) || "").toString());
   }
 
   _latestFuelReceipt(receipts) {
@@ -1170,7 +1237,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <form class="cmr-history-form" data-form="fuel-receipt" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
         <div class="cmr-add-grid">
-          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(draft.date || today)}"></label>
+          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date || today))}"></label>
           <label class="cmr-field"><span>Kilometraj bord</span><input type="number" name="km" min="1" step="1" required value="${this._escape(draft.km || this._extractSummary(vehicle).km || "")}"></label>
           <label class="cmr-field"><span>Tip combustibil</span><select name="fuel_type" required>${fuelOptions}</select></label>
           <label class="cmr-field"><span>Litri / kWh</span><input type="number" name="quantity" min="0.001" step="0.001" required value="${this._escape(draft.quantity || "")}"></label>
@@ -1225,7 +1292,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <form class="cmr-history-form cmr-inline-edit-form" data-form="fuel-receipt-edit" data-receipt-id="${this._escape(receiptId)}" data-vehicle="${this._escape(vehicleKey)}" data-vehicle-ref="${this._escape(vehicle.vehicle_id || vehicle.plate || vehicle.label || vehicle.key || "")}">
         <div class="cmr-add-grid">
-          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(draft.date ?? receipt.date ?? "")}"></label>
+          <label class="cmr-field"><span>Data alimentării</span><input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date ?? receipt.date ?? ""))}"></label>
           <label class="cmr-field"><span>Kilometraj bord</span><input type="number" name="km" min="1" step="1" required value="${this._escape(draft.km ?? receipt.km ?? "")}"></label>
           <label class="cmr-field"><span>Tip combustibil</span><select name="fuel_type" required>${fuelOptions}</select></label>
           <label class="cmr-field"><span>Litri / kWh</span><input type="number" name="quantity" min="0.001" step="0.001" required value="${this._escape(quantity)}"></label>
@@ -1242,21 +1309,93 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
   _vehicleFuelProfile(vehicle) {
-    const entity = vehicle.entities.find((item) => item.entityId?.startsWith("text.") && this._normalize(this._friendly(item)).includes("motorizare"));
-    const value = (entity?.stateObj?.state || "diesel").toString();
-    return value && value !== "unknown" && value !== "unavailable" ? value : "diesel";
+    const extractValue = (entity) => {
+      if (!entity) return "";
+      const state = (entity.stateObj?.state ?? "").toString().trim();
+      return state && state !== "unknown" && state !== "unavailable" ? state : "";
+    };
+
+    const isFuelProfileEntity = (entity) => {
+      const entityId = this._normalize(entity?.entityId || "");
+      const name = this._normalize(this._friendly(entity || {}));
+      return entityId.includes("motorizare")
+        || entityId.includes("fuel_profile")
+        || name.includes("motorizare")
+        || name.includes("motorizar")
+        || name.includes("fuel profile");
+    };
+
+    const localEntity = (vehicle.entities || []).find((entity) => entity.entityId?.startsWith("text.") && isFuelProfileEntity(entity));
+    const localValue = extractValue(localEntity);
+    if (localValue) return this._normalizeFuelProfile(localValue);
+
+    const vehicleKeys = [
+      vehicle.vehicle_id,
+      vehicle.key,
+      vehicle.label,
+      vehicle.plate,
+      vehicle.vin,
+    ].filter(Boolean).map((value) => this._normalize(value));
+
+    const candidate = Object.entries(this._hass?.states || {}).find(([entityId, stateObj]) => {
+      if (!entityId.startsWith("text.")) return false;
+      const registry = this._hass?.entities?.[entityId] || {};
+      if (registry.platform && registry.platform !== "car_manager_romania") return false;
+
+      const probe = { entityId, stateObj, registry };
+      if (!isFuelProfileEntity(probe)) return false;
+
+      const attrs = stateObj.attributes || {};
+      const haystack = [
+        entityId,
+        attrs.friendly_name,
+        attrs.vehicle_id,
+        attrs.license_plate,
+        attrs.vin,
+        attrs.name,
+        registry.unique_id,
+      ].filter(Boolean).map((value) => this._normalize(value));
+
+      return vehicleKeys.some((key) => key && haystack.some((value) => value.includes(key) || key.includes(value)));
+    });
+
+    const fallbackValue = extractValue(candidate ? { entityId: candidate[0], stateObj: candidate[1] } : null);
+    return this._normalizeFuelProfile(fallbackValue || "diesel");
+  }
+
+  _normalizeFuelProfile(value) {
+    const normalized = this._normalize(value || "");
+    if (!normalized || normalized === "unknown" || normalized === "unavailable") return "diesel";
+
+    if (normalized.includes("phev") || normalized.includes("plug-in") || normalized.includes("plugin") || normalized.includes("plug in")) {
+      if (normalized.includes("diesel") || normalized.includes("motorina")) return "phev_diesel";
+      return "phev_gasoline";
+    }
+    if (normalized.includes("hibrid") || normalized.includes("hybrid")) {
+      if (normalized.includes("diesel") || normalized.includes("motorina")) return "hybrid_diesel";
+      return "hybrid_gasoline";
+    }
+    if (normalized.includes("benzina") || normalized.includes("gasoline") || normalized.includes("petrol")) return "gasoline";
+    if (normalized.includes("motorina") || normalized.includes("diesel")) return "diesel";
+    if (normalized.includes("gpl") || normalized.includes("lpg")) return "lpg";
+    if (normalized.includes("electric")) return "electric";
+
+    const allowed = new Set(["gasoline", "diesel", "lpg", "electric", "hybrid_gasoline", "hybrid_diesel", "phev_gasoline", "phev_diesel"]);
+    return allowed.has(value) ? value : "diesel";
   }
 
   _fuelProfileOptions(selected) {
+    const selectedProfile = this._normalizeFuelProfile(selected || "diesel");
     const options = [
       ["gasoline", "Benzină"], ["diesel", "Motorină"], ["lpg", "GPL"], ["electric", "Electric"],
       ["hybrid_gasoline", "Hibrid benzină"], ["hybrid_diesel", "Hibrid motorină"],
       ["phev_gasoline", "Plug-in hybrid benzină"], ["phev_diesel", "Plug-in hybrid motorină"],
     ];
-    return options.map(([value, label]) => `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`).join("");
+    return options.map(([value, label]) => `<option value="${value}" ${value === selectedProfile ? "selected" : ""}>${label}</option>`).join("");
   }
 
   _fuelTypeOptions(profile, selected) {
+    const normalizedProfile = this._normalizeFuelProfile(profile);
     const byProfile = {
       gasoline: [["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"]],
       diesel: [["diesel_standard", "Motorină standard"], ["diesel_premium", "Motorină premium"]],
@@ -1267,7 +1406,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       phev_gasoline: [["gasoline_standard", "Benzină standard"], ["gasoline_premium", "Benzină premium"], ["electric_charge", "Încărcare electrică"]],
       phev_diesel: [["diesel_standard", "Motorină standard"], ["diesel_premium", "Motorină premium"], ["electric_charge", "Încărcare electrică"]],
     };
-    const options = byProfile[profile] || byProfile.diesel;
+    const options = byProfile[normalizedProfile] || byProfile.diesel;
     const selectedValue = selected || options[0][0];
     return options.map(([value, label]) => `<option value="${value}" ${value === selectedValue ? "selected" : ""}>${label}</option>`).join("");
   }
@@ -1400,8 +1539,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(draft.dot || "")}" placeholder="ex. 3523"></label>
           <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(draft.quantity || "4")}"></label>
           <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(draft.wheel_mount_type || "tires_only")}</select></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || today)}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(draft.last_mount_date || "")}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(draft.purchase_date || today))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(this._formatDateInputValue(draft.last_mount_date || ""))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(draft.last_mount_km || "0")}"></label>
           <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(draft.total_km || "0")}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
@@ -1460,8 +1599,8 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>DOT</span><input type="text" name="dot" value="${this._escape(value("dot"))}"></label>
           <label class="cmr-field"><span>Nr. bucăți</span><input type="number" name="quantity" min="1" max="12" step="1" value="${this._escape(value("quantity", "4"))}"></label>
           <label class="cmr-field"><span>Montaj</span><select name="wheel_mount_type">${this._tireMountTypeOptions(value("wheel_mount_type", "tires_only"))}</select></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(value("last_mount_date"))}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(value("purchase_date")))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="last_mount_date" value="${this._escape(this._formatDateInputValue(value("last_mount_date")))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="last_mount_km" min="0" step="1" value="${this._escape(value("last_mount_km", "0"))}"></label>
           <label class="cmr-field"><span>Km parcurși cu setul</span><input type="number" name="total_km" min="0" step="1" value="${this._escape(value("total_km", "0"))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
@@ -1544,6 +1683,20 @@ class CarManagerRomaniaCard extends HTMLElement {
       groups.set(key, existing);
     }
     return [...groups.values()].sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "ro"));
+  }
+
+  _costCategoryLabel(category) {
+    const labels = {
+      maintenance: "Mentenanță",
+      legal: "Termen legal",
+      fuel: "Combustibil",
+      tire: "Anvelope",
+      equipment: "Echipamente",
+      battery: "Baterie",
+      safety: "Siguranță",
+      other: "Alte costuri",
+    };
+    return labels[String(category || "other")] || "Alte costuri";
   }
 
   _renderUpcomingCostItems(items) {
@@ -1751,7 +1904,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       <div class="cmr-tile ${stateClass}">
         <div class="cmr-tile-top"><ha-icon icon="${icon}"></ha-icon><span class="cmr-tile-title">${this._escape(title)}</span></div>
         <div class="cmr-tile-main">${this._escape(this._formatMain(main))}</div>
-        <div class="cmr-tile-sub">${this._escape(status || sub || "neconfigurat")}</div>
+        <div class="cmr-tile-sub">${this._escape(this._formatDisplayValue(status || sub || "neconfigurat"))}</div>
       </div>
     `;
   }
@@ -1947,7 +2100,7 @@ class CarManagerRomaniaCard extends HTMLElement {
           </label>
           <label class="cmr-field">
             <span>Data</span>
-            <input type="date" name="date" value="${this._escape(draft.date || today)}">
+            <input type="date" name="date" value="${this._escape(this._formatDateInputValue(draft.date || today))}">
           </label>
           <label class="cmr-field">
             <span>Kilometraj</span>
@@ -2293,7 +2446,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       return /itp.*(incepe la|expira la|statie|numar raport|observatii|cost estimat)/.test(name);
     }
     if (legalType === "rovinieta") {
-      return /rovinieta.*(cost estimat)/.test(name);
+      return /rovinieta.*(incepe la|expira la|cost estimat)/.test(name);
     }
     return false;
   }
@@ -2328,11 +2481,13 @@ class CarManagerRomaniaCard extends HTMLElement {
         </label>
       `;
     }
-    const type = domain === "number" ? "number" : domain === "date" ? "date" : "text";
+    const type = domain === "date" ? "date" : domain === "number" ? "number" : "text";
+    const inputValue = domain === "date" ? this._formatDateInputValue(value) : value;
+    const placeholder = "";
     return `
       <label class="cmr-field">
         <span>${this._escape(label)}</span>
-        <input type="${type}" value="${this._escape(value)}" data-entity="${entity.entityId}" data-domain="${domain}">
+        <input type="${type}" value="${this._escape(inputValue)}" data-entity="${entity.entityId}" data-domain="${domain}"${placeholder}>
       </label>
     `;
   }
@@ -2341,9 +2496,9 @@ class CarManagerRomaniaCard extends HTMLElement {
     return `
       <div class="cmr-row ${cls || ""}">
         <div class="cmr-row-label">${this._escape(label)}</div>
-        <div class="cmr-row-value">${this._escape(value || "—")}</div>
-        ${middle ? `<div class="cmr-row-muted">${this._escape(middle)}</div>` : ""}
-        ${right ? `<div class="cmr-row-muted">${this._escape(right)}</div>` : ""}
+        <div class="cmr-row-value">${this._escape(this._formatDisplayValue(value || "—"))}</div>
+        ${middle ? `<div class="cmr-row-muted">${this._escape(this._formatDisplayValue(middle))}</div>` : ""}
+        ${right ? `<div class="cmr-row-muted">${this._escape(this._formatDisplayValue(right))}</div>` : ""}
       </div>
     `;
   }
@@ -2496,6 +2651,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       this._fuelVehicleFilter = event.currentTarget.value || "all";
       this.render();
     });
+
 
     this.querySelector('[data-action="fuel-period-filter"]')?.addEventListener("change", (event) => {
       this._fuelPeriodFilter = event.currentTarget.value || "current_year";
@@ -2923,7 +3079,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const data = new FormData(form);
     this._serviceRecordDrafts[vehicleKey] = {
       record_type: (data.get("record_type") || "service").toString(),
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "0").toString(),
       title: (data.get("title") || "").toString(),
       service_name: (data.get("service_name") || "").toString(),
@@ -3073,9 +3229,9 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>CCA / curent pornire</span><input type="number" name="cca" min="0" step="1" value="${this._escape(draft.cca || "0")}"></label>
           <label class="cmr-field"><span>Polaritate</span><input type="text" name="polarity" value="${this._escape(draft.polarity || "")}" placeholder="ex. dreapta +"></label>
           <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(draft.size || "")}" placeholder="ex. 278x175x190"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(draft.install_date || "")}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(this._formatDateInputValue(draft.install_date || ""))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="install_km" min="0" step="1" value="${this._escape(draft.install_km || "0")}"></label>
-          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(draft.warranty_until || "")}"></label>
+          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(this._formatDateInputValue(draft.warranty_until || ""))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
         </div>
         <label class="cmr-check"><input type="checkbox" name="installed" ${draft.installed === false ? "" : "checked"}> Montată acum</label>
@@ -3096,7 +3252,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const editOpen = batteryId && this._batteryEditOpen.has(batteryId);
     const title = [item.brand_model || "Baterie", item.battery_type_label || ""].filter(Boolean).join(" · ");
     const specs = [item.capacity_ah ? `${item.capacity_ah} Ah` : "", item.cca ? `${item.cca} CCA` : "", item.size || "", item.polarity || ""].filter(Boolean).join(" · ");
-    const meta = [item.installed ? "montată acum" : "nemontată", item.install_date ? `montată ${item.install_date}` : "fără dată montare", item.warranty_until ? `garanție ${item.warranty_until}` : "fără garanție", item.status_label || ""].filter(Boolean).join(" · ");
+    const meta = [item.installed ? "montată acum" : "nemontată", item.install_date ? `montată ${this._formatDateForDisplay(item.install_date)}` : "fără dată montare", item.warranty_until ? `garanție ${this._formatDateForDisplay(item.warranty_until)}` : "fără garanție", item.status_label || ""].filter(Boolean).join(" · ");
     return `
       <div class="cmr-cost-item cmr-cost-item-block">
         <div class="cmr-cost-item-main">
@@ -3131,9 +3287,9 @@ class CarManagerRomaniaCard extends HTMLElement {
           <label class="cmr-field"><span>CCA / curent pornire</span><input type="number" name="cca" min="0" step="1" value="${this._escape(value("cca", "0"))}"></label>
           <label class="cmr-field"><span>Polaritate</span><input type="text" name="polarity" value="${this._escape(value("polarity"))}"></label>
           <label class="cmr-field"><span>Dimensiune</span><input type="text" name="size" value="${this._escape(value("size"))}"></label>
-          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(value("install_date"))}"></label>
+          <label class="cmr-field"><span>Data montării</span><input type="date" name="install_date" value="${this._escape(this._formatDateInputValue(value("install_date")))}"></label>
           <label class="cmr-field"><span>Km la montare</span><input type="number" name="install_km" min="0" step="1" value="${this._escape(value("install_km", "0"))}"></label>
-          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(value("warranty_until"))}"></label>
+          <label class="cmr-field"><span>Garanție până la</span><input type="date" name="warranty_until" value="${this._escape(this._formatDateInputValue(value("warranty_until")))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
         </div>
         <label class="cmr-check"><input type="checkbox" name="installed" ${installed ? "checked" : ""}> Montată acum</label>
@@ -3167,9 +3323,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       cca: (data.get("cca") || "0").toString(),
       polarity: (data.get("polarity") || "").toString(),
       size: (data.get("size") || "").toString(),
-      install_date: (data.get("install_date") || "").toString(),
+      install_date: this._formDate(data, "install_date"),
       install_km: (data.get("install_km") || "0").toString(),
-      warranty_until: (data.get("warranty_until") || "").toString(),
+      warranty_until: this._formDate(data, "warranty_until"),
       cost: (data.get("cost") || "0").toString(),
       notes: (data.get("notes") || "").toString(),
     };
@@ -3201,9 +3357,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       cca: Number(data.get("cca") || 0),
       polarity: (data.get("polarity") || "").toString().trim(),
       size: (data.get("size") || "").toString().trim(),
-      install_date: (data.get("install_date") || "").toString(),
+      install_date: this._formDate(data, "install_date"),
       install_km: Number(data.get("install_km") || 0),
-      warranty_until: (data.get("warranty_until") || "").toString(),
+      warranty_until: this._formDate(data, "warranty_until"),
       cost: Number(data.get("cost") || 0),
       notes: (data.get("notes") || "").toString().trim(),
     };
@@ -3427,8 +3583,8 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-add-grid">
           <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(draft.equipment_type)}</select></label>
           <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(draft.name || "")}" placeholder="ex. Trusă auto omologată"></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(draft.purchase_date || "")}"></label>
-          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(draft.expiry_date || "")}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(draft.purchase_date || ""))}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(this._formatDateInputValue(draft.expiry_date || ""))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(draft.cost || "0")}"></label>
           <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(draft.storage_location || "")}" placeholder="ex. portbagaj"></label>
         </div>
@@ -3500,7 +3656,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const itemId = item.item_id || "";
     const editOpen = itemId && this._equipmentEditOpen.has(itemId);
     const title = [item.equipment_type_label || "Echipament", item.name || ""].filter(Boolean).join(" · ");
-    const expiry = item.expiry_date ? `expiră ${item.expiry_date}` : "fără expirare";
+    const expiry = item.expiry_date ? `expiră ${this._formatDateForDisplay(item.expiry_date)}` : "fără expirare";
     const status = item.status || "—";
     const meta = [expiry, status, item.present ? "prezent" : "lipsă", item.storage_location || ""].filter(Boolean).join(" · ");
     return `
@@ -3532,8 +3688,8 @@ class CarManagerRomaniaCard extends HTMLElement {
         <div class="cmr-add-grid">
           <label class="cmr-field"><span>Tip echipament</span><select name="equipment_type">${this._equipmentTypeOptions(value("equipment_type", "first_aid_kit"))}</select></label>
           <label class="cmr-field"><span>Denumire / model</span><input type="text" name="name" value="${this._escape(value("name"))}"></label>
-          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(value("purchase_date"))}"></label>
-          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(value("expiry_date"))}"></label>
+          <label class="cmr-field"><span>Data cumpărării</span><input type="date" name="purchase_date" value="${this._escape(this._formatDateInputValue(value("purchase_date")))}"></label>
+          <label class="cmr-field"><span>Expiră la</span><input type="date" name="expiry_date" value="${this._escape(this._formatDateInputValue(value("expiry_date")))}"></label>
           <label class="cmr-field"><span>Cost</span><input type="number" name="cost" min="0" step="0.01" value="${this._escape(value("cost", "0"))}"></label>
           <label class="cmr-field"><span>Loc depozitare</span><input type="text" name="storage_location" value="${this._escape(value("storage_location"))}"></label>
         </div>
@@ -3567,8 +3723,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       size: (data.get("size") || "").toString(),
       dot: (data.get("dot") || "").toString(),
       quantity: (data.get("quantity") || "4").toString(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      last_mount_date: this._formDate(data, "last_mount_date"),
       last_mount_km: (data.get("last_mount_km") || "0").toString(),
       total_km: (data.get("total_km") || "0").toString(),
       cost: (data.get("cost") || "0").toString(),
@@ -3606,8 +3762,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       size: (data.get("size") || "").toString().trim(),
       dot: (data.get("dot") || "").toString().trim(),
       quantity: Math.round(Number(data.get("quantity") || 4)),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      last_mount_date: (data.get("last_mount_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      last_mount_date: this._formDate(data, "last_mount_date"),
       last_mount_km: Math.round(Number(data.get("last_mount_km") || 0)),
       total_km: Math.round(Number(data.get("total_km") || 0)),
       cost: Number(data.get("cost") || 0),
@@ -3764,8 +3920,8 @@ class CarManagerRomaniaCard extends HTMLElement {
     return {
       equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
       name: (data.get("name") || "").toString(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      expiry_date: (data.get("expiry_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      expiry_date: this._formDate(data, "expiry_date"),
       cost: (data.get("cost") || "0").toString(),
       present: data.get("present") === "on",
       ignored: false,
@@ -3793,8 +3949,8 @@ class CarManagerRomaniaCard extends HTMLElement {
       vehicle_id: form.dataset.vehicleRef || form.dataset.vehicle,
       equipment_type: (data.get("equipment_type") || "first_aid_kit").toString(),
       name: (data.get("name") || "").toString().trim(),
-      purchase_date: (data.get("purchase_date") || "").toString(),
-      expiry_date: (data.get("expiry_date") || "").toString(),
+      purchase_date: this._formDate(data, "purchase_date"),
+      expiry_date: this._formDate(data, "expiry_date"),
       cost: Number(data.get("cost") || 0),
       present: data.get("present") === "on",
       ignored: false,
@@ -3875,7 +4031,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const vehicleKey = form.dataset.vehicle;
     const data = new FormData(form);
     this._fuelReceiptDrafts[vehicleKey] = {
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "").toString(),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: (data.get("quantity") || "").toString(),
@@ -3892,7 +4048,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (!receiptId) return;
     const data = new FormData(form);
     this._fuelReceiptEditDrafts[receiptId] = {
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: (data.get("km") || "").toString(),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: (data.get("quantity") || "").toString(),
@@ -3976,7 +4132,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const data = new FormData(form);
     const payload = {
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: Number(data.get("quantity") || 0),
@@ -4016,7 +4172,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const payload = {
       receipt_id: receiptId,
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       fuel_type: (data.get("fuel_type") || "").toString(),
       quantity: Number(data.get("quantity") || 0),
@@ -4133,7 +4289,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const payload = {
       vehicle_id: form.dataset.vehicleRef || vehicleKey,
       record_type: (data.get("record_type") || "custom").toString(),
-      date: (data.get("date") || "").toString(),
+      date: this._formDate(data, "date"),
       km: Math.round(Number(data.get("km") || 0)),
       title: (data.get("title") || "").toString().trim(),
       service_name: (data.get("service_name") || "").toString().trim(),
@@ -4371,7 +4527,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     if (domain === "number") {
       this._hass.callService("number", "set_value", { value: Number(value || 0) }, { entity_id: entityId });
     } else if (domain === "date") {
-      this._hass.callService("date", "set_value", { date: value || null }, { entity_id: entityId });
+      this._hass.callService("date", "set_value", { date: this._parseDateInputValue(value) || null }, { entity_id: entityId });
     } else if (domain === "text") {
       this._hass.callService("text", "set_value", { value }, { entity_id: entityId });
     }
@@ -4391,9 +4547,9 @@ class CarManagerRomaniaCard extends HTMLElement {
     const itpStatus = this._findSensorByName(vehicle, ["itp", "status"]);
     const itpDays = this._findSensorByName(vehicle, ["itp", "zile", "ramase"]);
     const itpExpiry = this._findByName(vehicle, ["itp", "expir"]);
-    const rovStatus = this._findSensorByName(vehicle, ["roviniet"], ["zile", "expir", "serie", "categorie", "perioad"]);
-    const rovDays = this._findSensorByName(vehicle, ["roviniet", "zile", "ramase"]);
-    const rovExpiry = this._findByName(vehicle, ["roviniet", "expir"]);
+    const rovStatus = this._findRovinietaStatus(vehicle);
+    const rovDays = this._findRovinietaDays(vehicle);
+    const rovExpiry = this._findRovinietaExpiry(vehicle);
 
     return {
       km: this._entityValue(km),
@@ -4402,16 +4558,16 @@ class CarManagerRomaniaCard extends HTMLElement {
       serviceKm: this._formatKm(this._entityValue(serviceKm)),
       rcaStatus: this._entityValue(rcaStatus),
       rcaDays: this._formatDays(this._entityValue(rcaDays)),
-      rcaExpiry: this._entityValue(rcaExpiry),
+      rcaExpiry: this._formatDateForDisplay(this._entityValue(rcaExpiry)),
       cascoStatus: this._entityValue(cascoStatus),
       cascoDays: this._formatDays(this._entityValue(cascoDays)),
-      cascoExpiry: this._entityValue(cascoExpiry),
+      cascoExpiry: this._formatDateForDisplay(this._entityValue(cascoExpiry)),
       itpStatus: this._entityValue(itpStatus),
       itpDays: this._formatDays(this._entityValue(itpDays)),
-      itpExpiry: this._entityValue(itpExpiry),
+      itpExpiry: this._formatDateForDisplay(this._entityValue(itpExpiry)),
       rovinietaStatus: this._entityValue(rovStatus),
       rovinietaDays: this._formatDays(this._entityValue(rovDays)),
-      rovinietaExpiry: this._entityValue(rovExpiry),
+      rovinietaExpiry: this._formatDateForDisplay(this._entityValue(rovExpiry)),
     };
   }
 
@@ -4420,6 +4576,63 @@ class CarManagerRomaniaCard extends HTMLElement {
     const found = this._findByName(vehicle, terms, excludeTerms, (entity) => entity.entityId.startsWith("sensor."));
     if (found) return found;
     return this._findByName(vehicle, terms, excludeTerms);
+  }
+
+  _findRovinietaStatus(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet"],
+      ["zile", "expir", "serie", "categorie", "perioad"],
+      (entity) => entity.entityId.startsWith("sensor.") && this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto)) return auto;
+
+    return this._findByName(
+      vehicle,
+      ["roviniet", "status"],
+      ["zile", "expir", "serie", "categorie", "perioad"],
+      (entity) => entity.entityId.startsWith("sensor."),
+    );
+  }
+
+  _findRovinietaDays(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet", "zile", "ramase"],
+      [],
+      (entity) => entity.entityId.startsWith("sensor.") && this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto) !== null) return auto;
+
+    return this._findByName(
+      vehicle,
+      ["roviniet", "zile", "ramase"],
+      [],
+      (entity) => entity.entityId.startsWith("sensor."),
+    );
+  }
+
+  _findRovinietaExpiry(vehicle) {
+    const auto = this._findByName(
+      vehicle,
+      ["roviniet", "expir"],
+      [],
+      (entity) => this._isAutoRovinietaEntity(entity),
+    );
+    if (this._entityValue(auto)) return auto;
+
+    return this._findByName(vehicle, ["roviniet", "expir"]);
+  }
+
+  _isAutoRovinietaEntity(entity) {
+    const attrs = entity.stateObj?.attributes || {};
+    return Boolean(
+      attrs.numar_inmatriculare ||
+      attrs.serie_rovinieta ||
+      attrs.categorie_rovinieta ||
+      attrs.numar_total_roviniete !== undefined ||
+      attrs.detalii_rovinieta_activa
+    );
   }
 
   _findMaintenanceRemainingDays(vehicle, key) {
@@ -4549,6 +4762,49 @@ class CarManagerRomaniaCard extends HTMLElement {
     return /^(sensor|number|date|text|button)\./.test(entityId);
   }
 
+  _isHubOrAdminGroup(group) {
+    const model = this._normalize(group.device?.model || "");
+    const label = this._normalize(group.label || group.device?.name || "");
+    const key = this._normalize(group.key || "");
+    const vehicleId = this._normalize(group.vehicle_id || this._vehicleIdFromDevice(group.device || {}) || "");
+
+    const adminLabels = new Set([
+      "car manager",
+      "car manager romania",
+      "car manager românia",
+      "hub",
+      "administrare integrare",
+    ]);
+    const adminIds = new Set(["car_manager", "car_manager_romania", "hub", "license", "licenta"]);
+
+    const hasPlateOrVin = Boolean(group.plate || group.vin)
+      || (group.entities || []).some((entity) => {
+        const attrs = entity.stateObj?.attributes || {};
+        return Boolean(attrs.license_plate || attrs.vin);
+      });
+
+    if (model === "hub") return true;
+    if (!hasPlateOrVin && (adminLabels.has(label) || adminIds.has(vehicleId) || adminIds.has(key))) return true;
+
+    const hasOnlyGenericVehicleId = !hasPlateOrVin && (vehicleId === "car_manager" || vehicleId === "car_manager_romania" || key === "car_manager" || key === "car_manager_romania");
+    if (hasOnlyGenericVehicleId) return true;
+
+    const hasAdminOrLicenseEntity = (group.entities || []).some((entity) => {
+      const entityId = this._normalize(entity.entityId || "");
+      const name = this._normalize(this._friendly(entity));
+      return entityId.includes("licenta")
+        || entityId.includes("license")
+        || entityId.includes("numar_autovehicule")
+        || name.includes("licenta")
+        || name.includes("numar autovehicule")
+        || name.includes("actualizeaza status")
+        || name.includes("aplica licenta")
+        || name.includes("actualizeaza rovinieta");
+    });
+
+    return !hasPlateOrVin && hasAdminOrLicenseEntity;
+  }
+
   _isInactiveVehicleGroup(group) {
     const inactiveIds = this._inactiveVehicleIds || new Set();
     if (!inactiveIds.size) return false;
@@ -4578,7 +4834,8 @@ class CarManagerRomaniaCard extends HTMLElement {
     const label = this._normalize(group.label || "");
     if (!group.entities.length) return false;
     if (label.includes("e-rovinieta") || label === "rovinieta" || label.includes("rovinieta.ro")) return false;
-    if (label.includes("car manager romania") && !group.plate) return false;
+    if ((label === "car manager" || label.includes("car manager romania") || label.includes("car manager românia")) && !group.plate && !group.vin) return false;
+    if (this._isHubOrAdminGroup(group)) return false;
 
     const hasPlate = Boolean(group.plate);
     const hasCoreVehicleEntity = group.entities.some((entity) => {
@@ -4693,9 +4950,32 @@ class CarManagerRomaniaCard extends HTMLElement {
     return this._normalize(summary?.cascoStatus || "") !== "neconfigurat";
   }
 
+
+  _formatDisplayValue(value) {
+    return this._formatDateForDisplay(value);
+  }
+
+  _formatDateForDisplay(value) {
+    if (value === undefined || value === null) return value;
+    const text = value.toString().trim();
+    if (!text) return text;
+
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+    if (isoMatch) {
+      return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+    }
+
+    const roMatch = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})(?:\s.*)?$/);
+    if (roMatch) {
+      return `${roMatch[1].padStart(2, "0")}/${roMatch[2].padStart(2, "0")}/${roMatch[3]}`;
+    }
+
+    return text;
+  }
+
   _formatMain(value) {
     if (value === undefined || value === null || value === "") return "—";
-    return value;
+    return this._formatDisplayValue(value);
   }
 
   _statusClass(value) {

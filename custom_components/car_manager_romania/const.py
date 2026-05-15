@@ -9,7 +9,7 @@ VERSION = "1.0.61b3"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
-ATTR_INTEGRATION_VERSION = "integration_version"
+ATTR_INTEGRATION_VERSION = "1.0.61b3"
 
 SIGNAL_VEHICLES_UPDATED = f"{DOMAIN}_vehicles_updated"
 SIGNAL_LICENSE_UPDATED = f"{DOMAIN}_license_updated"
@@ -342,11 +342,13 @@ LEGAL_TYPE_ITP = "itp"
 LEGAL_TYPE_ROVINIETA = "rovinieta"
 
 # Termene legale cu perioadă de valabilitate editabilă manual.
-# Rovinieta rămâne gestionată prioritar prin modulul e-rovinieta.ro; aici păstrăm doar costul estimat/planificat.
+# Rovinieta poate fi urmărită și manual, pentru utilizatorii fără cont e-rovinieta.ro.
+# Dacă modulul e-rovinieta.ro este configurat și găsește autovehiculul, cardul preferă datele automate.
 LEGAL_TYPES: dict[str, str] = {
     LEGAL_TYPE_RCA: "RCA",
     LEGAL_TYPE_CASCO: "CASCO",
     LEGAL_TYPE_ITP: "ITP",
+    LEGAL_TYPE_ROVINIETA: "Rovinietă",
 }
 
 LEGAL_COST_TYPES: dict[str, str] = {
@@ -359,6 +361,10 @@ LEGAL_COST_TYPES: dict[str, str] = {
 LEGAL_START_DATE = "start_date"
 LEGAL_END_DATE = "end_date"
 LEGAL_OPTION_IGNORED = "ignored"
+
+LEGAL_DATA_SOURCE = "source"
+LEGAL_SOURCE_MANUAL = "manual"
+LEGAL_SOURCE_EROVINIETA = "e-rovinieta.ro"
 
 LEGAL_STATUS_UNKNOWN = "neconfigurat"
 LEGAL_STATUS_VALID = "valid"
