@@ -27,7 +27,6 @@ from homeassistant.util import slugify
 from .const import (
     CONF_KM,
     CONF_FUEL_PROFILE,
-    CONF_LEGAL_TERMS,
     CONF_LICENSE_PLATE,
     CONF_NAME,
     CONF_REMOVED,
@@ -37,7 +36,6 @@ from .const import (
     CONF_VEHICLES,
     CONF_VEHICLE_ID,
     CONF_VIN,
-    COST_AMOUNT,
     DEFAULT_ROVINIETA_SCAN_INTERVAL,
     DOMAIN,
     PLATFORMS,
@@ -72,13 +70,8 @@ from .const import (
     TIRE_MOUNT_TYPES,
     EQUIPMENT_TYPES,
     BATTERY_TYPES,
-    LEGAL_DATA_SOURCE,
-    LEGAL_END_DATE,
     LEGAL_OPTION_IGNORED,
-    LEGAL_SOURCE_EROVINIETA,
-    LEGAL_START_DATE,
     LEGAL_TYPE_CASCO,
-    LEGAL_TYPE_ROVINIETA,
     STORAGE_KEY_NOTIFICATIONS,
     STORAGE_VERSION_NOTIFICATIONS,
     FUEL_TYPES,
@@ -3033,16 +3026,6 @@ async def async_setup_entry(
         rovinieta_coordinator=rovinieta_coordinator,
     )
 
-    if rovinieta_coordinator is not None:
-        await _async_sync_rovinieta_manual_terms(hass, entry, dispatch_updates=False)
-
-        def _schedule_rovinieta_manual_sync() -> None:
-            hass.async_create_task(_async_sync_rovinieta_manual_terms(hass, entry))
-
-        entry.async_on_unload(
-            rovinieta_coordinator.async_add_listener(_schedule_rovinieta_manual_sync)
-        )
-
     entry.async_on_unload(entry.add_update_listener(async_update_options))
 
     await _async_register_services(hass)
@@ -3086,157 +3069,6 @@ async def async_setup_entry(
 
     return True
 
-
-
-
-def _rovinieta_plate_key(value: Any) -> str:
-    """Return a normalized license plate key for matching Car Manager and e-rovinieta data."""
-
-    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
-
-
-def _rovinieta_date_value(value: Any) -> str | None:
-    """Return an ISO date string from a rovinieta datetime/date value."""
-
-    if value is None:
-        return None
-
-    if hasattr(value, "astimezone"):
-        return value.astimezone().date().isoformat()
-
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-
-    return None
-
-
-def _active_rovinieta_start_date(rovinieta_vehicle: Any) -> str | None:
-    """Extract the active rovinieta start date as YYYY-MM-DD when the API exposes it."""
-
-    active_vignette = getattr(rovinieta_vehicle, "active_vignette", None)
-    if not isinstance(active_vignette, dict):
-        return None
-
-    for key in ("date_start_availability", "oProdTransactionStartDate"):
-        raw_value = active_vignette.get(key)
-        if not raw_value:
-            continue
-
-        if isinstance(raw_value, str):
-            candidate = raw_value.strip()
-            if len(candidate) >= 10:
-                return candidate[:10]
-
-    return None
-
-
-def _active_rovinieta_price(rovinieta_vehicle: Any) -> float | None:
-    """Extract the active rovinieta price in RON when available."""
-
-    active_vignette = getattr(rovinieta_vehicle, "active_vignette", None)
-    if not isinstance(active_vignette, dict):
-        return None
-
-    raw_value = active_vignette.get("oProdPrice")
-    if raw_value in (None, ""):
-        return None
-
-    try:
-        return round(float(str(raw_value).replace(",", ".")), 2)
-    except (TypeError, ValueError):
-        return None
-
-
-async def _async_sync_rovinieta_manual_terms(
-    hass: HomeAssistant,
-    entry: CarManagerConfigEntry,
-    *,
-    dispatch_updates: bool = True,
-) -> bool:
-    """Prefill manual rovinieta fields from e-rovinieta.ro without erasing manual fallback data.
-
-    Automatic data is copied only when the manual rovinieta end date is empty or when
-    the previously stored source is also e-rovinieta.ro. This means a user-entered
-    manual override is preserved on later refreshes.
-    """
-
-    runtime_data = getattr(entry, "runtime_data", None)
-    if runtime_data is None:
-        return False
-
-    coordinator = getattr(runtime_data, "rovinieta_coordinator", None)
-    if coordinator is None or coordinator.data is None:
-        return False
-
-    all_vehicles = deepcopy(getattr(runtime_data, "all_vehicles", []))
-    if not all_vehicles:
-        return False
-
-    rovinieta_by_plate = {
-        _rovinieta_plate_key(getattr(rovinieta_vehicle, "plate_no", "")): rovinieta_vehicle
-        for rovinieta_vehicle in coordinator.data.vehicles
-        if _rovinieta_plate_key(getattr(rovinieta_vehicle, "plate_no", ""))
-    }
-
-    changed = False
-    for vehicle in all_vehicles:
-        if not isinstance(vehicle, dict):
-            continue
-
-        plate_key = _rovinieta_plate_key(vehicle.get(CONF_LICENSE_PLATE))
-        rovinieta_vehicle = rovinieta_by_plate.get(plate_key)
-        if rovinieta_vehicle is None:
-            continue
-
-        end_date = _rovinieta_date_value(getattr(rovinieta_vehicle, "expiry", None))
-        if not end_date:
-            continue
-
-        legal_terms = vehicle.setdefault(CONF_LEGAL_TERMS, {})
-        if not isinstance(legal_terms, dict):
-            legal_terms = {}
-            vehicle[CONF_LEGAL_TERMS] = legal_terms
-
-        rovinieta_term = legal_terms.setdefault(LEGAL_TYPE_ROVINIETA, {})
-        if not isinstance(rovinieta_term, dict):
-            rovinieta_term = {}
-            legal_terms[LEGAL_TYPE_ROVINIETA] = rovinieta_term
-
-        current_source = rovinieta_term.get(LEGAL_DATA_SOURCE)
-        current_end_date = rovinieta_term.get(LEGAL_END_DATE)
-        may_update_from_auto = not current_end_date or current_source == LEGAL_SOURCE_EROVINIETA
-        if not may_update_from_auto:
-            continue
-
-        start_date = _active_rovinieta_start_date(rovinieta_vehicle)
-        price = _active_rovinieta_price(rovinieta_vehicle)
-
-        updates: dict[str, Any] = {
-            LEGAL_END_DATE: end_date,
-            LEGAL_DATA_SOURCE: LEGAL_SOURCE_EROVINIETA,
-        }
-        if start_date:
-            updates[LEGAL_START_DATE] = start_date
-        if price is not None:
-            updates[COST_AMOUNT] = price
-
-        for key, value in updates.items():
-            if rovinieta_term.get(key) != value:
-                rovinieta_term[key] = value
-                changed = True
-
-    if not changed:
-        return False
-
-    active_vehicles = _active_vehicles(all_vehicles)
-    runtime_data.all_vehicles = all_vehicles
-    runtime_data.vehicles = active_vehicles
-    await runtime_data.vehicle_store.async_save_vehicles(all_vehicles)
-
-    if dispatch_updates:
-        dispatcher_send(hass, SIGNAL_VEHICLES_UPDATED, active_vehicles)
-
-    return True
 
 async def _async_setup_rovinieta_coordinator(
     hass: HomeAssistant,

@@ -107,19 +107,26 @@ def calculate_km_remaining(
     last_km: int | None,
     interval_km: int | None,
 ) -> int | None:
-    """Calculate remaining kilometers."""
+    """Calculează kilometrii rămași până la mentenanță.
+
+    Valoarea poate fi negativă atunci când termenul în kilometri este depășit.
+    Acest lucru este util în notificări și automatizări Home Assistant.
+    """
 
     if last_km is None or interval_km is None or interval_km <= 0:
         return None
 
-    return max((last_km + interval_km) - current_km, 0)
+    return (last_km + interval_km) - current_km
 
 
 def calculate_days_remaining(
     last_date_raw: Any,
     interval_days: int | None,
 ) -> int | None:
-    """Calculate remaining days."""
+    """Calculează zilele rămase până la mentenanță.
+
+    Valoarea poate fi negativă atunci când termenul calendaristic este depășit.
+    """
 
     if interval_days is None or interval_days <= 0:
         return None
@@ -129,7 +136,7 @@ def calculate_days_remaining(
         return None
 
     elapsed_days = (date.today() - last_date).days
-    return max(interval_days - elapsed_days, 0)
+    return interval_days - elapsed_days
 
 
 def calculate_maintenance_status(

@@ -478,7 +478,7 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
 
         vehicle_records.sort(key=lambda item: str(item.get("date", "")), reverse=True)
         attributes["service_history"] = vehicle_records[:10]
-        attributes["fuel_receipts"] = enriched_fuel_receipts_for_vehicle(self._entry, self._vehicle)[:20]
+        attributes["fuel_receipts"] = enriched_fuel_receipts_for_vehicle(self._entry, self._vehicle)
         attributes["fuel_consumption_intervals"] = fuel_consumption_intervals(self._entry, self._vehicle)[:10]
         attributes["tire_sets"] = tire_sets_for_vehicle(self._entry, self._vehicle)[:20]
         attributes["tire_costs_current_year"] = current_year_tire_cost_total(self._entry, self._vehicle)
@@ -848,7 +848,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         return int(value or 0)
 
     def _km_remaining(self) -> int | None:
-        """Return remaining kilometers."""
+        """Returnează kilometrii rămași, inclusiv valori negative când termenul este depășit."""
 
         return calculate_km_remaining(
             self._current_km(),
@@ -857,7 +857,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         )
 
     def _days_remaining(self) -> int | None:
-        """Return remaining days."""
+        """Returnează zilele rămase, inclusiv valori negative când termenul este depășit."""
 
         return calculate_days_remaining(
             self._last_date(),
@@ -906,7 +906,7 @@ class CarVehicleMaintenanceKmRemainingSensor(CarVehicleMaintenanceBaseSensor):
 
     @property
     def native_value(self) -> int | None:
-        """Return remaining kilometers."""
+        """Returnează kilometrii rămași, inclusiv valori negative când termenul este depășit."""
 
         return self._km_remaining()
 
@@ -938,7 +938,7 @@ class CarVehicleMaintenanceDaysRemainingSensor(CarVehicleMaintenanceBaseSensor):
 
     @property
     def native_value(self) -> int | None:
-        """Return remaining days."""
+        """Returnează zilele rămase, inclusiv valori negative când termenul este depășit."""
 
         return self._days_remaining()
 
