@@ -1,4 +1,4 @@
-"""Date entities for Car Manager România."""
+"""Modul pentru entitățile de tip dată."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ async def async_setup_entry(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up date entities."""
+    """Configurează componentele integrației în Home Assistant."""
 
     entities: list[DateEntity] = []
 
@@ -83,7 +83,7 @@ async def async_setup_entry(
 
 
 class VehicleBaseDate(DateEntity):
-    """Base date entity for vehicle values."""
+    """Clasă pentru vehicul de bază dată."""
 
     _attr_has_entity_name = True
 
@@ -93,7 +93,7 @@ class VehicleBaseDate(DateEntity):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Initialize base vehicle date."""
+        """Funcție internă pentru init."""
 
         self._hass = hass
         self._entry = entry
@@ -102,7 +102,7 @@ class VehicleBaseDate(DateEntity):
         self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to vehicle and license data updates."""
+        """Gestionează asincron operațiunea pentru added to hass."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -122,19 +122,19 @@ class VehicleBaseDate(DateEntity):
 
     @callback
     def _schedule_license_refresh(self) -> None:
-        """Schedule a license-gate refresh."""
+        """Funcție internă pentru schedule licență refresh."""
 
         self.hass.async_create_task(self._async_refresh_license_gate())
 
     async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
-        """Refresh the cached license gate used by sync entity properties."""
+        """Funcție internă pentru refresh licență gate."""
 
         self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
         if write_state:
             self.async_write_ha_state()
 
     def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
-        """Refresh cached vehicle data and update the entity state."""
+        """Funcție internă pentru gestionare vehicule updated."""
 
         for vehicle in vehicles:
             if vehicle.get("vehicle_id") == self._vehicle_id:
@@ -144,7 +144,7 @@ class VehicleBaseDate(DateEntity):
 
     @property
     def _blocked_by_license(self) -> bool:
-        """Return True if this vehicle may not expose or edit data."""
+        """Funcție internă pentru blocate by licență."""
 
         return not vehicle_allowed_by_license(
             self._entry,
@@ -154,34 +154,29 @@ class VehicleBaseDate(DateEntity):
 
     @property
     def available(self) -> bool:
-        """Return availability."""
+        """Funcție pentru disponibil."""
 
         return not self._blocked_by_license
 
     def _raise_if_blocked_by_license(self) -> None:
-        """Reject edits for vehicles locked by license."""
+        """Funcție internă pentru raise if blocate by licență."""
 
         if self._blocked_by_license:
             raise HomeAssistantError("Autovehicul dezactivat fără licență activă.")
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return vehicle device information."""
+        """Funcție pentru dispozitiv informații."""
 
         return build_vehicle_device_info(self._vehicle)
 
     def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Return the current runtime vehicles for safe incremental updates.
-
-        Values edited from entities are persisted in Home Assistant storage, not in
-        config_entry.options. Using entry.options here can reload stale vehicle data
-        and overwrite fields previously edited from other entities.
-        """
+        """Funcție internă pentru get vehicule for actualizare."""
 
         return deepcopy(getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles))
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        """Persist vehicles in Home Assistant storage and refresh runtime data."""
+        """Funcție internă pentru persistare vehicule."""
 
         self._raise_if_blocked_by_license()
 
@@ -209,7 +204,7 @@ class VehicleBaseDate(DateEntity):
 
 
 class VehicleMaintenanceDate(VehicleBaseDate):
-    """Editable maintenance date."""
+    """Clasă pentru vehicul mentenanță dată."""
 
     _attr_icon = "mdi:calendar-wrench"
 
@@ -221,7 +216,7 @@ class VehicleMaintenanceDate(VehicleBaseDate):
         maintenance_type: str,
         label: str,
     ) -> None:
-        """Initialize maintenance date."""
+        """Funcție internă pentru init."""
 
         super().__init__(hass, entry, vehicle)
         self._maintenance_type = maintenance_type
@@ -237,7 +232,7 @@ class VehicleMaintenanceDate(VehicleBaseDate):
 
     @property
     def native_value(self) -> date | None:
-        """Return maintenance date."""
+        """Funcție pentru native valoare."""
 
         return parse_date(
             get_maintenance_value(
@@ -248,7 +243,7 @@ class VehicleMaintenanceDate(VehicleBaseDate):
         )
 
     async def async_set_value(self, value: date) -> None:
-        """Set and persist maintenance date."""
+        """Gestionează asincron operațiunea pentru set valoare."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -266,7 +261,7 @@ class VehicleMaintenanceDate(VehicleBaseDate):
 
 
 class VehicleLegalDate(VehicleBaseDate):
-    """Editable legal term date."""
+    """Clasă pentru vehicul legal dată."""
 
     _attr_icon = "mdi:shield-car"
 
@@ -280,7 +275,7 @@ class VehicleLegalDate(VehicleBaseDate):
         name: str,
         unique_suffix: str,
     ) -> None:
-        """Initialize legal term date."""
+        """Funcție internă pentru init."""
 
         super().__init__(hass, entry, vehicle)
         self._legal_type = legal_type
@@ -290,12 +285,12 @@ class VehicleLegalDate(VehicleBaseDate):
 
     @property
     def native_value(self) -> date | None:
-        """Return legal term date."""
+        """Funcție pentru native valoare."""
 
         return parse_date(get_legal_value(self._vehicle, self._legal_type, self._field))
 
     async def async_set_value(self, value: date) -> None:
-        """Set and persist legal term date."""
+        """Gestionează asincron operațiunea pentru set valoare."""
 
         vehicles = self._get_vehicles_for_update()
 

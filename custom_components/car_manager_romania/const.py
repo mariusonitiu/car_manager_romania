@@ -1,15 +1,15 @@
-"""Constants for Car Manager România."""
+"""Constante pentru integrarea Car Manager România."""
 
 from __future__ import annotations
 
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.61b3"
+VERSION = "1.0.62"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
-ATTR_INTEGRATION_VERSION = "1.0.61b3"
+ATTR_INTEGRATION_VERSION = "1.0.62"
 
 SIGNAL_VEHICLES_UPDATED = f"{DOMAIN}_vehicles_updated"
 SIGNAL_LICENSE_UPDATED = f"{DOMAIN}_license_updated"

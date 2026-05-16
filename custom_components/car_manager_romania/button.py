@@ -1,4 +1,4 @@
-"""Button platform for Car Manager România."""
+"""Modul pentru butoanele integrației Car Manager România."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ LICENSE_TEXT_UNIQUE_SUFFIX = "license_v2_key_text"
 
 
 def _license_text_entity_id(hass: HomeAssistant, entry: CarManagerConfigEntry) -> str | None:
-    """Return the entity_id of the license text entity."""
+    """Funcție internă pentru licență text entitate ID."""
 
     registry = er.async_get(hass)
     unique_id = f"{entry.entry_id}_{LICENSE_TEXT_UNIQUE_SUFFIX}"
@@ -33,7 +33,7 @@ def _license_text_entity_id(hass: HomeAssistant, entry: CarManagerConfigEntry) -
 
 
 def _hub_device_info(entry: CarManagerConfigEntry) -> DeviceInfo:
-    """Return integration hub device info."""
+    """Funcție internă pentru hub dispozitiv informații."""
 
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
@@ -49,7 +49,7 @@ async def async_setup_entry(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up buttons."""
+    """Configurează componentele integrației în Home Assistant."""
 
     entities: list[ButtonEntity] = [
         CarManagerApplyLicenseButton(entry),
@@ -63,7 +63,7 @@ async def async_setup_entry(
 
 
 class CarManagerApplyLicenseButton(ButtonEntity):
-    """Button used to validate and apply the license key from the text entity."""
+    """Clasă pentru apply licență buton."""
 
     _attr_has_entity_name = True
     _attr_name = "Aplică licență"
@@ -71,7 +71,7 @@ class CarManagerApplyLicenseButton(ButtonEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Initialize button."""
+        """Funcție internă pentru init."""
 
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_license_v2_apply"
@@ -79,12 +79,12 @@ class CarManagerApplyLicenseButton(ButtonEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return hub device information."""
+        """Funcție pentru dispozitiv informații."""
 
         return _hub_device_info(self._entry)
 
     async def async_press(self) -> None:
-        """Validate and store the license key."""
+        """Gestionează asincron operațiunea pentru press."""
 
         text_entity_id = _license_text_entity_id(self.hass, self._entry)
         if not text_entity_id:
@@ -135,7 +135,7 @@ class CarManagerApplyLicenseButton(ButtonEntity):
 
 
 class CarManagerRefreshLicenseStatusButton(ButtonEntity):
-    """Button used to revalidate the currently stored license key."""
+    """Clasă pentru butonul de actualizare a statusului licenței."""
 
     _attr_has_entity_name = True
     _attr_name = "Actualizează status licență"
@@ -143,7 +143,7 @@ class CarManagerRefreshLicenseStatusButton(ButtonEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Initialize button."""
+        """Funcție internă pentru init."""
 
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_license_v2_refresh"
@@ -151,12 +151,12 @@ class CarManagerRefreshLicenseStatusButton(ButtonEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return hub device information."""
+        """Funcție pentru dispozitiv informații."""
 
         return _hub_device_info(self._entry)
 
     async def async_press(self) -> None:
-        """Revalidate the stored license key and persist the fresh result."""
+        """Gestionează asincron operațiunea pentru press."""
 
         username, license_key, _storage = await async_obtine_context_licenta(self.hass, intrare=self._entry)
         license_key = str(license_key or "").strip() or "TRIAL"
@@ -190,7 +190,7 @@ class CarManagerRefreshLicenseStatusButton(ButtonEntity):
 
 
 class CarManagerRovinietaRefreshButton(ButtonEntity):
-    """Button for manual rovinieta refresh."""
+    """Clasă pentru rovinietă refresh buton."""
 
     _attr_has_entity_name = True
     _attr_name = "Actualizează rovinieta"
@@ -198,19 +198,19 @@ class CarManagerRovinietaRefreshButton(ButtonEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Initialize button."""
+        """Funcție internă pentru init."""
 
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_rovinieta_refresh"
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return hub device information."""
+        """Funcție pentru dispozitiv informații."""
 
         return _hub_device_info(self._entry)
 
     async def async_press(self) -> None:
-        """Refresh rovinieta data."""
+        """Gestionează asincron operațiunea pentru press."""
 
         coordinator = self._entry.runtime_data.rovinieta_coordinator
         if coordinator is None:

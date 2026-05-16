@@ -1,4 +1,4 @@
-"""Battery helpers for Car Manager România."""
+"""Modul pentru gestionarea bateriilor vehiculelor."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from .const import (
 
 
 class CarManagerBatteryStore:
-    """Store vehicle batteries separately from vehicles."""
+    """Clasă pentru stocarea bateriilor."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store: Store = Store(hass, STORAGE_VERSION_BATTERIES, STORAGE_KEY_BATTERIES)
@@ -104,7 +104,7 @@ def _battery_age_days(install_date: dt_date | None) -> int | None:
 
 
 def _battery_status(install_date: dt_date | None, warranty_until: dt_date | None, installed: bool) -> tuple[str, str, int | None, int | None]:
-    """Return machine status, label, warranty days remaining and age days."""
+    """Funcție internă pentru statusul bateriei."""
 
     if not installed:
         return "not_installed", "Nemontată", None, _battery_age_days(install_date)
@@ -131,7 +131,7 @@ def _battery_status(install_date: dt_date | None, warranty_until: dt_date | None
 
 
 def normalize_battery_item(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a safe battery dictionary."""
+    """Funcție pentru normalizare baterie element."""
 
     battery_type = str(raw.get("battery_type") or "").strip()
     if battery_type not in BATTERY_TYPES:
@@ -194,7 +194,7 @@ def current_year_battery_cost_total(entry: Any, vehicle: dict[str, Any]) -> floa
 
 
 def battery_issues_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return critical and warning battery issues for one vehicle."""
+    """Funcție pentru baterie probleme for vehicul."""
 
     critical: list[dict[str, Any]] = []
     warning: list[dict[str, Any]] = []

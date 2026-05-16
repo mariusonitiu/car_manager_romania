@@ -1,4 +1,4 @@
-"""Device helpers for Car Manager România."""
+"""Modul pentru informațiile de dispozitiv."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from .const import CONF_NAME, CONF_VIN, DOMAIN, VERSION
 
 
 def build_vehicle_device_info(vehicle: dict[str, Any]) -> DeviceInfo:
-    """Build vehicle device info using the internal stable vehicle_id."""
+    """Funcție pentru build vehicul dispozitiv informații."""
 
     vehicle_id = vehicle["vehicle_id"]
 

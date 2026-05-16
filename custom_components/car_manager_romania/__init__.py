@@ -1,4 +1,4 @@
-"""The Car Manager România integration."""
+"""Modul principal pentru integrarea Car Manager România."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ LOVELACE_CARD_NOTIFICATION_ID = "car_manager_romania_lovelace_card"
 
 @dataclass(slots=True)
 class CarManagerRuntimeData:
-    """Runtime data for Car Manager România."""
+    """Clasă pentru runtime date."""
 
     integration_version: str
     vehicles: list[dict[str, Any]]
@@ -126,7 +126,7 @@ type CarManagerConfigEntry = ConfigEntry[CarManagerRuntimeData]
 
 
 def _normalize_resource_url(value: Any) -> str:
-    """Normalize a Lovelace resource URL for comparison."""
+    """Funcție internă pentru normalizare resursă URL."""
 
     if value is None:
         return ""
@@ -135,13 +135,13 @@ def _normalize_resource_url(value: Any) -> str:
     if not normalized:
         return ""
 
-    # Lovelace resources are often versioned with query strings such as ?v=0.7.1.
+    # Resursele Lovelace sunt adesea versionate cu parametri de tip ?v=0.7.1.
     normalized = normalized.split("?", 1)[0].split("#", 1)[0].rstrip("/")
     return normalized
 
 
 def _resource_url_matches(value: Any) -> bool:
-    """Return True if a Lovelace resource URL points to this integration card."""
+    """Funcție internă pentru resursă URL matches."""
 
     normalized = _normalize_resource_url(value)
     expected = _normalize_resource_url(LOVELACE_CARD_URL)
@@ -149,7 +149,7 @@ def _resource_url_matches(value: Any) -> bool:
 
 
 async def _maybe_await(value: Any) -> Any:
-    """Await a value only when it is awaitable."""
+    """Funcție internă pentru maybe await."""
 
     if inspect.isawaitable(value):
         return await value
@@ -157,7 +157,7 @@ async def _maybe_await(value: Any) -> Any:
 
 
 def _extract_resource_urls(value: Any) -> list[str]:
-    """Extract resource URLs from common Lovelace resource structures."""
+    """Funcție internă pentru extract resursă URL-uri."""
 
     urls: list[str] = []
 
@@ -190,7 +190,7 @@ def _extract_resource_urls(value: Any) -> list[str]:
 
 
 async def _async_lovelace_card_resource_exists(hass: HomeAssistant) -> bool:
-    """Check whether the Lovelace resource for the bundled card is already registered."""
+    """Funcție internă pentru Lovelace card resursă exists."""
 
     candidates: list[Any] = []
 
@@ -222,7 +222,7 @@ async def _async_lovelace_card_resource_exists(hass: HomeAssistant) -> bool:
             if "lovelace" in str(key).lower() and "resource" in str(key).lower():
                 candidates.append(value)
 
-        # Cea mai importantă verificare: resursele Lovelace în mod storage sunt
+        # Cea mai importantă verificare: resursele Lovelace în modul de stocare sunt
         # persistate în .storage/lovelace_resources și nu sunt întotdeauna încărcate
         # în hass.data în momentul în care se setează integrarea.
         try:
@@ -278,7 +278,7 @@ async def _async_lovelace_card_resource_exists(hass: HomeAssistant) -> bool:
 
 
 async def _async_register_frontend(hass: HomeAssistant) -> None:
-    """Serve the bundled Lovelace card and notify the user only when the resource is missing."""
+    """Funcție internă pentru înregistrare frontend."""
 
     base_path = Path(__file__).parent
     frontend_path = base_path / "frontend"
@@ -653,7 +653,7 @@ DELETE_BATTERY_SCHEMA = vol.Schema(
 
 
 def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return vehicles that are not marked as removed."""
+    """Funcție internă pentru active vehicule."""
 
     return [
         vehicle
@@ -663,12 +663,7 @@ def _active_vehicles(vehicles: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _expected_entity_unique_ids(entry: CarManagerConfigEntry) -> set[str]:
-    """Build the set of entity unique IDs that should exist for the current entry.
-
-    This is used only for registry cleanup. It intentionally follows the unique_id
-    rules used by the entity classes, including legacy IDs kept for the first
-    general service entities.
-    """
+    """Funcție internă pentru așteptate entitate unic ID-uri."""
 
     from .const import (
         CASCO_TEXT_FIELDS,
@@ -819,7 +814,7 @@ async def _async_cleanup_orphan_entities(
     *,
     dry_run: bool = False,
 ) -> list[dict[str, str]]:
-    """Remove registry entities that belong to this entry but are no longer generated."""
+    """Funcție internă pentru curățare orfane entități."""
 
     from homeassistant.helpers import entity_registry as er
 
@@ -838,8 +833,8 @@ async def _async_cleanup_orphan_entities(
         if not unique_id.startswith(f"{entry.entry_id}_"):
             continue
 
-        # Rovinieta can be temporarily unavailable if the external portal or login fails.
-        # Do not delete these entities automatically unless they are explicitly expected.
+        # Rovinieta poate fi temporar indisponibilă dacă portalul extern sau autentificarea eșuează.
+        # Nu ștergem automat aceste entități decât dacă nu mai sunt generate explicit.
         if "rovinieta" in unique_id:
             continue
 
@@ -860,7 +855,7 @@ async def _async_cleanup_orphan_entities(
 
 
 def _generate_vehicle_id(vehicles: list[dict[str, Any]], license_plate: str, vehicle_name: str) -> str:
-    """Generate a stable internal vehicle ID."""
+    """Funcție internă pentru generate vehicul ID."""
 
     base_id = slugify(license_plate) or slugify(vehicle_name) or "autovehicul"
     existing_ids = {str(vehicle.get("vehicle_id")) for vehicle in vehicles if vehicle.get("vehicle_id")}
@@ -876,7 +871,7 @@ def _generate_vehicle_id(vehicles: list[dict[str, Any]], license_plate: str, veh
 
 
 def _find_loaded_config_entry(hass: HomeAssistant, entry_id: str | None = None) -> CarManagerConfigEntry:
-    """Return the loaded config entry that should receive service changes."""
+    """Funcție internă pentru căutare loaded configurare intrare."""
 
     entries = hass.config_entries.async_entries(DOMAIN)
     if entry_id:
@@ -893,7 +888,7 @@ def _find_loaded_config_entry(hass: HomeAssistant, entry_id: str | None = None) 
 
 
 def _find_vehicle_by_id(vehicles: list[dict[str, Any]], vehicle_id: str) -> dict[str, Any] | None:
-    """Return a mutable vehicle dictionary by internal ID."""
+    """Funcție internă pentru căutare vehicul by ID."""
 
     for vehicle in vehicles:
         if not isinstance(vehicle, dict):
@@ -904,13 +899,13 @@ def _find_vehicle_by_id(vehicles: list[dict[str, Any]], vehicle_id: str) -> dict
 
 
 def _normalize_vehicle_reference(value: Any) -> str:
-    """Normalize a vehicle reference for tolerant service matching."""
+    """Funcție internă pentru normalizare vehicul referință."""
 
     return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
 
 
 def _find_vehicle_by_reference(vehicles: list[dict[str, Any]], reference: str) -> dict[str, Any] | None:
-    """Return a mutable vehicle dictionary by vehicle_id, VIN, plate or name."""
+    """Funcție internă pentru căutare vehicul by referință."""
 
     wanted = _normalize_vehicle_reference(reference)
     if not wanted:
@@ -933,7 +928,7 @@ def _find_vehicle_by_reference(vehicles: list[dict[str, Any]], reference: str) -
 
 
 def _vehicle_internal_id(vehicle: dict[str, Any]) -> str:
-    """Return the stable internal ID from a vehicle dictionary."""
+    """Funcție internă pentru vehicul intern ID."""
 
     vehicle_id = str(vehicle.get(CONF_VEHICLE_ID, "")).strip()
     if not vehicle_id:
@@ -942,7 +937,7 @@ def _vehicle_internal_id(vehicle: dict[str, Any]) -> str:
 
 
 def _maintenance_snapshot(vehicle: dict[str, Any], maintenance_type: str) -> dict[str, Any]:
-    """Return the current maintenance values that may be changed by a service record."""
+    """Funcție internă pentru mentenanță instantaneu."""
 
     return {
         "maintenance_type": maintenance_type,
@@ -960,7 +955,7 @@ def _is_service_record_newer_than_current(
     record_date: str,
     km_value: int,
 ) -> bool:
-    """Return True only when a history record should become the current maintenance baseline."""
+    """Funcție internă pentru verificarea unei intervenții mai noi decât valorile curente."""
 
     current_date_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_DATE)
     current_km_raw = get_maintenance_value(vehicle, maintenance_type, MAINTENANCE_LAST_KM)
@@ -998,7 +993,7 @@ def _is_service_record_newer_than_current(
 
 
 def _apply_maintenance_snapshot(vehicle: dict[str, Any], snapshot: dict[str, Any]) -> None:
-    """Restore maintenance values from a previous snapshot."""
+    """Funcție internă pentru apply mentenanță instantaneu."""
 
     maintenance_type = str(snapshot.get("maintenance_type", "")).strip()
     if maintenance_type not in MAINTENANCE_TYPES:
@@ -1026,7 +1021,7 @@ async def _async_restore_service_record_snapshot(
     entry: CarManagerConfigEntry,
     record: dict[str, Any],
 ) -> None:
-    """Restore vehicle maintenance values using a history record snapshot."""
+    """Funcție internă pentru restaurarea instantaneului unei intervenții."""
 
     vehicle_store = entry.runtime_data.vehicle_store
     history_store = entry.runtime_data.service_history_store
@@ -1082,7 +1077,7 @@ async def _async_restore_service_record_snapshot(
 
 
 async def _async_register_services(hass: HomeAssistant) -> None:
-    """Register integration services once."""
+    """Funcție internă pentru înregistrare services."""
 
     hass.data.setdefault(DOMAIN, {})
     if (
@@ -1112,7 +1107,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         return
 
     async def async_refresh_license_status(call: ServiceCall) -> None:
-        """Force an online license validation from a Home Assistant service call."""
+        """Gestionează asincron actualizarea statusului licenței."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
 
@@ -1136,7 +1131,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(result.message or "Licența nu este validă.")
 
     async def async_add_vehicle(call: ServiceCall) -> None:
-        """Add a vehicle from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru adăugare vehicul."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1182,7 +1177,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_remove_vehicle(call: ServiceCall) -> None:
-        """Mark a vehicle as removed from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru eliminare vehicul."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1229,7 +1224,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_restore_vehicle(call: ServiceCall) -> None:
-        """Restore a previously disabled vehicle from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru restaurare vehicul."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1277,7 +1272,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_restore_all_vehicles(call: ServiceCall) -> None:
-        """Restore all disabled vehicles from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru restaurare all vehicule."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1316,7 +1311,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_add_service_record(call: ServiceCall) -> None:
-        """Add a service/intervention history record from a Home Assistant service call."""
+        """Gestionează asincron adăugarea unei intervenții în istoric."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1433,7 +1428,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_add_fuel_receipt(call: ServiceCall) -> None:
-        """Add a fuel receipt from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru adăugare combustibil bon."""
 
         from .fuel import allowed_fuel_types, enrich_fuel_receipt, is_liquid_fuel
 
@@ -1519,7 +1514,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_update_fuel_receipt(call: ServiceCall) -> None:
-        """Update an existing fuel receipt from a Home Assistant service call."""
+        """Gestionează asincron operațiunea pentru actualizare combustibil bon."""
 
         from .fuel import allowed_fuel_types, enrich_fuel_receipt, is_liquid_fuel
 
@@ -1617,7 +1612,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_delete_fuel_receipt(call: ServiceCall) -> None:
-        """Delete a fuel receipt."""
+        """Gestionează asincron operațiunea pentru ștergere combustibil bon."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         receipt_id = str(call.data["receipt_id"]).strip()
@@ -1631,7 +1626,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_restore_service_record(call: ServiceCall) -> None:
-        """Restore maintenance values changed by one service history record."""
+        """Gestionează asincron restaurarea unei intervenții din istoric."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         history_store = entry.runtime_data.service_history_store
@@ -1647,7 +1642,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await _async_restore_service_record_snapshot(hass, entry, record)
 
     async def async_restore_last_service_record(call: ServiceCall) -> None:
-        """Restore the last restorable maintenance update for a vehicle."""
+        """Gestionează asincron restaurarea ultimei intervenții din istoric."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         history_store = entry.runtime_data.service_history_store
@@ -1697,7 +1692,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await _async_restore_service_record_snapshot(hass, entry, selected_record)
 
     async def async_update_service_record(call: ServiceCall) -> None:
-        """Update safe informational fields for one service/intervention history record."""
+        """Gestionează asincron actualizarea unei intervenții din istoric."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         history_store = entry.runtime_data.service_history_store
@@ -1736,7 +1731,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Intervenție actualizată în istoricul Car Manager România: %s", record_id)
 
     async def async_delete_service_record(call: ServiceCall) -> None:
-        """Delete one service/intervention history record only."""
+        """Gestionează asincron ștergerea unei intervenții din istoric."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         history_store = entry.runtime_data.service_history_store
@@ -1754,7 +1749,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Intervenție ștearsă din istoricul Car Manager România: %s", record_id)
 
     async def async_export_data(call: ServiceCall) -> None:
-        """Export Car Manager România data to a local JSON backup file."""
+        """Gestionează asincron operațiunea pentru export date."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -1840,9 +1835,9 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Export Car Manager România salvat în %s", backup_path)
 
     async def async_validate_backup(call: ServiceCall) -> None:
-        """Validate a local Car Manager România JSON backup without importing it."""
+        """Gestionează asincron operațiunea pentru validare backup."""
 
-        # Găsim entry-ul doar ca să validăm contextul. Nu modificăm datele integrației.
+        # Găsim intrarea de configurare doar ca să validăm contextul. Nu modificăm datele integrației.
         _find_loaded_config_entry(hass, call.data.get("entry_id"))
 
         filename = str(call.data.get("filename") or "car_manager_romania_backup.json").strip()
@@ -2041,7 +2036,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         )
 
     async def async_import_data(call: ServiceCall) -> None:
-        """Import Car Manager România data from a local JSON backup in merge mode."""
+        """Gestionează asincron operațiunea pentru import date."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -2412,7 +2407,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_set_legal_option(call: ServiceCall) -> None:
-        """Set optional legal-term visibility flags for one vehicle."""
+        """Gestionează asincron operațiunea pentru set legal option."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_store = entry.runtime_data.vehicle_store
@@ -2446,7 +2441,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_cleanup_orphan_entities(call: ServiceCall) -> None:
-        """Clean registry entities that are no longer generated by this integration."""
+        """Gestionează asincron operațiunea pentru curățare orfane entități."""
 
         target_entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         dry_run = bool(call.data.get("dry_run", False))
@@ -2479,7 +2474,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
 
     async def async_add_tire_set(call: ServiceCall) -> None:
-        """Add a tire set."""
+        """Gestionează asincron operațiunea pentru adăugare anvelopă set."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
@@ -2525,7 +2520,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_update_tire_set(call: ServiceCall) -> None:
-        """Update an existing tire set."""
+        """Gestionează asincron operațiunea pentru actualizare anvelopă set."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         set_id = str(call.data.get("set_id", "")).strip()
@@ -2573,7 +2568,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_delete_tire_set(call: ServiceCall) -> None:
-        """Delete a tire set."""
+        """Gestionează asincron operațiunea pentru ștergere anvelopă set."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         set_id = str(call.data.get("set_id", "")).strip()
@@ -2593,7 +2588,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                     raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
 
     async def async_add_equipment_item(call: ServiceCall) -> None:
-        """Add one vehicle equipment/safety item."""
+        """Gestionează asincron operațiunea pentru adăugare echipamente element."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
@@ -2621,7 +2616,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_update_equipment_item(call: ServiceCall) -> None:
-        """Update one vehicle equipment/safety item."""
+        """Gestionează asincron operațiunea pentru actualizare echipamente element."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         item_id = str(call.data.get("item_id", "")).strip()
@@ -2653,7 +2648,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_delete_equipment_item(call: ServiceCall) -> None:
-        """Delete one vehicle equipment/safety item."""
+        """Gestionează asincron operațiunea pentru ștergere echipamente element."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         item_id = str(call.data.get("item_id", "")).strip()
@@ -2674,7 +2669,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                     raise HomeAssistantError(f"Câmpul {field_name} trebuie să fie în format YYYY-MM-DD.") from err
 
     async def async_add_battery(call: ServiceCall) -> None:
-        """Add one vehicle battery."""
+        """Gestionează asincron operațiunea pentru adăugare baterie."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         vehicle_ref = str(call.data[CONF_VEHICLE_ID]).strip()
@@ -2705,7 +2700,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_update_battery(call: ServiceCall) -> None:
-        """Update one vehicle battery."""
+        """Gestionează asincron operațiunea pentru actualizare baterie."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         battery_id = str(call.data.get("battery_id", "")).strip()
@@ -2740,7 +2735,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         await hass.config_entries.async_reload(entry.entry_id)
 
     async def async_delete_battery(call: ServiceCall) -> None:
-        """Delete one vehicle battery."""
+        """Gestionează asincron operațiunea pentru ștergere baterie."""
 
         entry = _find_loaded_config_entry(hass, call.data.get("entry_id"))
         battery_id = str(call.data.get("battery_id", "")).strip()
@@ -2949,12 +2944,7 @@ async def _async_revalidate_license_non_blocking(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> None:
-    """Revalidate the stored license after startup without blocking setup.
-
-    This task intentionally runs after the integration has finished loading. It
-    updates the local license status when the server answers clearly, but keeps
-    the cached value when the licensing server is temporarily unreachable.
-    """
+    """Funcție internă pentru revalidare licență non blocking."""
 
     await asyncio.sleep(15)
 
@@ -2969,8 +2959,8 @@ async def _async_revalidate_license_non_blocking(
         license_key = str(license_key or "").strip() or "TRIAL"
         result = await async_valideaza_licenta(hass, license_key, username)
 
-        # If the licensing server is unreachable, do not overwrite the last
-        # known local status. A clear revoked/expired/invalid response is saved.
+        # Dacă serverul de licențiere nu poate fi contactat, nu suprascriem ultimul
+        # status local cunoscut. Un răspuns clar revoked/expired/invalid se salvează.
         if result.connection_error:
             _LOGGER.warning(
                 "Car Manager România: revalidarea licenței după pornire nu a reușit: %s",
@@ -2992,7 +2982,7 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> bool:
-    """Set up Car Manager România from a config entry."""
+    """Configurează componentele integrației în Home Assistant."""
 
     vehicle_store = CarManagerVehicleStore(hass)
     service_history_store = CarManagerServiceHistoryStore(hass)
@@ -3062,7 +3052,7 @@ async def async_setup_entry(
     await async_check_maintenance_notifications(hass, entry)
 
     def _schedule_notification_check(*_: Any) -> None:
-        """Schedule a notification check without blocking Home Assistant."""
+        """Funcție internă pentru schedule notificare verificare."""
 
         hass.async_create_task(async_check_maintenance_notifications(hass, entry))
 
@@ -3090,13 +3080,13 @@ async def async_setup_entry(
 
 
 def _rovinieta_plate_key(value: Any) -> str:
-    """Return a normalized license plate key for matching Car Manager and e-rovinieta data."""
+    """Funcție internă pentru rovinietă număr de înmatriculare cheie."""
 
     return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
 
 
 def _rovinieta_date_value(value: Any) -> str | None:
-    """Return an ISO date string from a rovinieta datetime/date value."""
+    """Funcție internă pentru rovinietă dată valoare."""
 
     if value is None:
         return None
@@ -3111,7 +3101,7 @@ def _rovinieta_date_value(value: Any) -> str | None:
 
 
 def _active_rovinieta_start_date(rovinieta_vehicle: Any) -> str | None:
-    """Extract the active rovinieta start date as YYYY-MM-DD when the API exposes it."""
+    """Funcție internă pentru active rovinietă început dată."""
 
     active_vignette = getattr(rovinieta_vehicle, "active_vignette", None)
     if not isinstance(active_vignette, dict):
@@ -3131,7 +3121,7 @@ def _active_rovinieta_start_date(rovinieta_vehicle: Any) -> str | None:
 
 
 def _active_rovinieta_price(rovinieta_vehicle: Any) -> float | None:
-    """Extract the active rovinieta price in RON when available."""
+    """Funcție internă pentru active rovinietă preț."""
 
     active_vignette = getattr(rovinieta_vehicle, "active_vignette", None)
     if not isinstance(active_vignette, dict):
@@ -3153,12 +3143,7 @@ async def _async_sync_rovinieta_manual_terms(
     *,
     dispatch_updates: bool = True,
 ) -> bool:
-    """Prefill manual rovinieta fields from e-rovinieta.ro without erasing manual fallback data.
-
-    Automatic data is copied only when the manual rovinieta end date is empty or when
-    the previously stored source is also e-rovinieta.ro. This means a user-entered
-    manual override is preserved on later refreshes.
-    """
+    """Funcție internă pentru sync rovinietă manual termene."""
 
     runtime_data = getattr(entry, "runtime_data", None)
     if runtime_data is None:
@@ -3242,7 +3227,7 @@ async def _async_setup_rovinieta_coordinator(
     hass: HomeAssistant,
     entry: ConfigEntry,
 ) -> CarManagerRovinietaCoordinator | None:
-    """Create and refresh the internal rovinieta coordinator if configured."""
+    """Funcție internă pentru configurare rovinietă coordonator."""
 
     options = {**dict(entry.data), **dict(entry.options)}
     username = (options.get(CONF_ROVINIETA_USERNAME) or "").strip()
@@ -3281,7 +3266,7 @@ async def async_update_options(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> None:
-    """Handle options update."""
+    """Gestionează asincron operațiunea pentru actualizare opțiuni."""
 
     vehicle_store = entry.runtime_data.vehicle_store
     stored_vehicles = await vehicle_store.async_get_vehicles()
@@ -3306,6 +3291,6 @@ async def async_unload_entry(
     hass: HomeAssistant,
     entry: CarManagerConfigEntry,
 ) -> bool:
-    """Unload a config entry."""
+    """Descarcă integrarea din Home Assistant."""
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

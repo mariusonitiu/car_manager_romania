@@ -1,4 +1,4 @@
-"""Constants for the internal rovinieta module."""
+"""Constante pentru integrarea Car Manager România."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Tire set helpers for Car Manager România."""
+"""Modul pentru seturile de anvelope."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .const import (
 
 
 class CarManagerTireSetStore:
-    """Store tire sets separately from vehicles and service history."""
+    """Clasă pentru stocarea seturilor de anvelope."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store: Store = Store(hass, STORAGE_VERSION_TIRE_SETS, STORAGE_KEY_TIRE_SETS)
@@ -87,7 +87,7 @@ def _parse_date(value: Any) -> dt_date | None:
 
 
 def normalize_tire_set(raw: dict[str, Any]) -> dict[str, Any]:
-    """Return a safe tire set dictionary."""
+    """Funcție pentru normalizare anvelopă set."""
 
     tire_type = str(raw.get("tire_type") or "").strip()
     if tire_type not in TIRE_TYPES:

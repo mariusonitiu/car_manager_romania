@@ -1,4 +1,4 @@
-"""Rovinieta sensors for Car Manager România."""
+"""Modul pentru senzorii Car Manager România."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _iso(dt):
 
 
 def _format_datetime(dt) -> str | None:
-    """Format datetime for display."""
+    """Funcție internă pentru formatare datetime."""
 
     if dt is None:
         return None
@@ -38,7 +38,7 @@ async def async_setup_rovinieta_sensors(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up rovinieta sensors for configured Car Manager vehicles."""
+    """Configurează componentele integrației în Home Assistant."""
 
     coordinator = entry.runtime_data.rovinieta_coordinator
     if coordinator is None or coordinator.data is None:
@@ -73,7 +73,7 @@ def _find_rovinieta_vehicle(
     coordinator: CarManagerRovinietaCoordinator,
     license_plate: str,
 ) -> VehicleData | None:
-    """Find rovinieta API vehicle by plate number."""
+    """Funcție internă pentru căutare rovinietă vehicul."""
 
     wanted = license_plate.replace(" ", "").upper()
     for vehicle in coordinator.data.vehicles:
@@ -84,7 +84,7 @@ def _find_rovinieta_vehicle(
 
 
 class CarRovinietaBaseSensor(SensorEntity):
-    """Base class for Car Manager rovinieta sensors."""
+    """Clasă pentru rovinietă de bază senzor."""
 
     _attr_has_entity_name = True
 
@@ -95,7 +95,7 @@ class CarRovinietaBaseSensor(SensorEntity):
         car_vehicle: dict[str, Any],
         rovinieta_vehicle_id: int,
     ) -> None:
-        """Initialize base sensor."""
+        """Funcție internă pentru init."""
 
         self._entry = entry
         self.coordinator = coordinator
@@ -105,7 +105,7 @@ class CarRovinietaBaseSensor(SensorEntity):
         self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Register coordinator and license listeners."""
+        """Gestionează asincron operațiunea pentru added to hass."""
 
         self.async_on_remove(
             self.coordinator.async_add_listener(self.async_write_ha_state)
@@ -121,12 +121,12 @@ class CarRovinietaBaseSensor(SensorEntity):
 
     @callback
     def _schedule_license_refresh(self) -> None:
-        """Schedule a license-gate refresh."""
+        """Funcție internă pentru schedule licență refresh."""
 
         self.hass.async_create_task(self._async_refresh_license_gate())
 
     async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
-        """Refresh the cached license gate used by sync entity properties."""
+        """Funcție internă pentru refresh licență gate."""
 
         self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
         if write_state:
@@ -134,7 +134,7 @@ class CarRovinietaBaseSensor(SensorEntity):
 
     @property
     def _blocked_by_license(self) -> bool:
-        """Return True if this vehicle may not expose rovinieta data."""
+        """Funcție internă pentru blocate by licență."""
 
         return not vehicle_allowed_by_license(
             self._entry,
@@ -144,13 +144,13 @@ class CarRovinietaBaseSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Return availability."""
+        """Funcție pentru disponibil."""
 
         return not self._blocked_by_license and self.rovinieta_vehicle is not None
 
     @property
     def rovinieta_vehicle(self) -> VehicleData | None:
-        """Return current rovinieta vehicle data."""
+        """Funcție pentru rovinietă vehicul."""
 
         if self.coordinator.data is None:
             return None
@@ -164,7 +164,7 @@ class CarRovinietaBaseSensor(SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return Car Manager vehicle device info."""
+        """Funcție pentru dispozitiv informații."""
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._vehicle_id)},
@@ -177,7 +177,7 @@ class CarRovinietaBaseSensor(SensorEntity):
 
     @property
     def common_attributes(self) -> dict[str, Any]:
-        """Return common rovinieta attributes."""
+        """Funcție pentru comune atribute."""
 
         if self._blocked_by_license:
             return locked_vehicle_attributes(self._vehicle_id)
@@ -221,7 +221,7 @@ class CarRovinietaBaseSensor(SensorEntity):
 
 
 class CarRovinietaStatusSensor(CarRovinietaBaseSensor):
-    """Rovinieta status sensor."""
+    """Clasă pentru senzorul de status al rovinietei."""
 
     _attr_name = "Rovinietă"
     _attr_icon = "mdi:shield-car"
@@ -249,7 +249,7 @@ class CarRovinietaStatusSensor(CarRovinietaBaseSensor):
 
 
 class CarRovinietaExpirySensor(CarRovinietaBaseSensor):
-    """Rovinieta expiry sensor."""
+    """Clasă pentru rovinietă expirare senzor."""
 
     _attr_name = "Rovinietă expiră la"
     _attr_icon = "mdi:calendar-end"
@@ -270,7 +270,7 @@ class CarRovinietaExpirySensor(CarRovinietaBaseSensor):
 
 
 class CarRovinietaDaysRemainingSensor(CarRovinietaBaseSensor):
-    """Rovinieta days remaining sensor."""
+    """Clasă pentru rovinietă zile rămași senzor."""
 
     _attr_name = "Zile rămase rovinietă"
     _attr_icon = "mdi:calendar-clock"
@@ -292,7 +292,7 @@ class CarRovinietaDaysRemainingSensor(CarRovinietaBaseSensor):
 
 
 class CarRovinietaSeriesSensor(CarRovinietaBaseSensor):
-    """Rovinieta series sensor."""
+    """Clasă pentru rovinietă series senzor."""
 
     _attr_name = "Serie rovinietă"
     _attr_icon = "mdi:identifier"
@@ -315,7 +315,7 @@ class CarRovinietaSeriesSensor(CarRovinietaBaseSensor):
 
 
 class CarRovinietaCategorySensor(CarRovinietaBaseSensor):
-    """Rovinieta category sensor."""
+    """Clasă pentru rovinietă category senzor."""
 
     _attr_name = "Categorie rovinietă"
     _attr_icon = "mdi:car-info"
@@ -336,7 +336,7 @@ class CarRovinietaCategorySensor(CarRovinietaBaseSensor):
 
 
 class CarRovinietaPeriodSensor(CarRovinietaBaseSensor):
-    """Rovinieta period sensor."""
+    """Clasă pentru rovinietă period senzor."""
 
     _attr_name = "Perioadă rovinietă"
     _attr_icon = "mdi:calendar-range"

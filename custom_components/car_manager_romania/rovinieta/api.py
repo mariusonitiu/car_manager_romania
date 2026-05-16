@@ -1,4 +1,4 @@
-"""API client for e-rovinieta.ro."""
+"""Modul API pentru e-rovinieta.ro."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ERovinietaApiClient:
-    """Simple API client for e-rovinieta.ro."""
+    """Clasă pentru erovinieta API client."""
 
     def __init__(self, session: ClientSession, username: str, password: str) -> None:
         self._session = session
@@ -25,7 +25,7 @@ class ERovinietaApiClient:
 
     @property
     def headers(self) -> dict[str, str]:
-        """Return common request headers."""
+        """Funcție pentru headere."""
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -40,7 +40,7 @@ class ERovinietaApiClient:
         return headers
 
     async def async_login(self) -> dict[str, Any]:
-        """Authenticate and store the bearer token."""
+        """Gestionează asincron operațiunea pentru login."""
         payload = {"username": self._username, "password": self._password}
         data = await self._request("POST", "/auth/login", json=payload, auth_call=True)
 
@@ -52,11 +52,11 @@ class ERovinietaApiClient:
         return data
 
     async def async_get_account(self) -> dict[str, Any]:
-        """Return account data."""
+        """Gestionează asincron operațiunea pentru get cont."""
         return await self._ensure_auth_then_request("GET", "/auth/me")
 
     async def async_get_vehicles(self) -> dict[str, Any]:
-        """Return vehicles."""
+        """Gestionează asincron operațiunea pentru get vehicule."""
         return await self._ensure_auth_then_request(
             "GET",
             "/vehicles?sort_car_vignette_expiry_date=vignette_expiry&page=1",
@@ -64,7 +64,7 @@ class ERovinietaApiClient:
         )
 
     async def async_get_orders(self) -> dict[str, Any]:
-        """Return orders."""
+        """Gestionează asincron operațiunea pentru get comenzi."""
         return await self._ensure_auth_then_request(
             "GET",
             "/orders?page_erv=1",
@@ -72,11 +72,11 @@ class ERovinietaApiClient:
         )
 
     async def async_get_order_statuses(self) -> dict[str, Any]:
-        """Return order statuses."""
+        """Gestionează asincron operațiunea pentru get order statuses."""
         return await self._ensure_auth_then_request("GET", "/ordersSts")
 
     async def async_get_profiles(self) -> dict[str, Any]:
-        """Return billing profiles."""
+        """Gestionează asincron operațiunea pentru get profiles."""
         return await self._ensure_auth_then_request(
             "GET",
             "/profiles",
@@ -84,7 +84,7 @@ class ERovinietaApiClient:
         )
 
     async def async_get_tokens(self) -> dict[str, Any]:
-        """Return saved cards / tokens."""
+        """Gestionează asincron operațiunea pentru get tokenuri."""
         return await self._ensure_auth_then_request(
             "GET",
             "/tokens",
@@ -92,7 +92,7 @@ class ERovinietaApiClient:
         )
 
     async def async_fetch_all(self) -> dict[str, Any]:
-        """Fetch all relevant account data."""
+        """Gestionează asincron operațiunea pentru fetch all."""
         if not self._token:
             await self.async_login()
 
@@ -119,7 +119,7 @@ class ERovinietaApiClient:
         *,
         referer: str | None = None,
     ) -> dict[str, Any]:
-        """Request an endpoint and retry once after re-login on 401."""
+        """Funcție internă pentru ensure auth then cerere."""
         try:
             return await self._request(method, path, referer=referer)
         except ERovinietaAuthError:
@@ -136,7 +136,7 @@ class ERovinietaApiClient:
         referer: str | None = None,
         auth_call: bool = False,
     ) -> dict[str, Any]:
-        """Perform an API request."""
+        """Funcție internă pentru cerere."""
         headers = dict(self.headers)
         if referer:
             headers["Referer"] = referer

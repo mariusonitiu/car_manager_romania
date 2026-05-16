@@ -1,41 +1,41 @@
-"""Exceptions for e-rovinieta.ro."""
+"""Modul pentru excepțiile integrației."""
 
 
 class ERovinietaError(Exception):
-    """Base error for the integration."""
+    """Clasă pentru erovinieta eroare."""
 
 
 class ERovinietaAuthError(ERovinietaError):
-    """Raised when authentication fails."""
+    """Clasă pentru erovinieta auth eroare."""
 
 
 class ERovinietaApiError(ERovinietaError):
-    """Raised when the API returns an unexpected response."""
+    """Clasă pentru erovinieta API eroare."""
 
 
 class ERovinietaLicenseError(ERovinietaError):
-    """Base license error."""
+    """Clasă pentru erovinieta licență eroare."""
 
 
 class ERovinietaLicenseInvalidError(ERovinietaLicenseError):
-    """Raised when license is invalid."""
+    """Clasă pentru erovinieta licență invalidă eroare."""
 
 
 class ERovinietaLicenseExpiredError(ERovinietaLicenseError):
-    """Raised when license is expired."""
+    """Clasă pentru erovinieta licență expirată eroare."""
 
 
 class ERovinietaLicenseRevokedError(ERovinietaLicenseError):
-    """Raised when license is revoked."""
+    """Clasă pentru erovinieta licență revocată eroare."""
 
 
 class ERovinietaLicenseInvalidProductError(ERovinietaLicenseError):
-    """Raised when license is not valid for this product."""
+    """Clasă pentru erovinieta licență invalidă produs eroare."""
 
 
 class ERovinietaLicenseActivationLimitError(ERovinietaLicenseError):
-    """Raised when license activation limit is reached."""
+    """Clasă pentru erovinieta licență activare limită eroare."""
 
 
 class ERovinietaLicenseConnectionError(ERovinietaLicenseError):
-    """Raised when license server cannot be reached."""
+    """Clasă pentru erovinieta licență connection eroare."""

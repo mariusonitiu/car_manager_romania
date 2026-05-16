@@ -1,4 +1,4 @@
-"""Payload normalization for e-rovinieta.ro."""
+"""Modul pentru normalizarea datelor brute."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ def _order_from_raw(raw: dict[str, Any], order_type: str) -> OrderData:
 
 
 def normalize_payload(payload: dict[str, Any]) -> AccountData:
-    """Normalize raw API payload."""
+    """Funcție pentru normalizare payload."""
     raw_vehicles = ((payload.get("vehicles") or {}).get("data") or {}).get("vehicles") or []
     raw_orders = (payload.get("orders") or {}).get("orders") or {}
     raw_profiles = (payload.get("profiles") or {}).get("profiles") or []

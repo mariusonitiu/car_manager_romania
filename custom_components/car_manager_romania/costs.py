@@ -1,4 +1,4 @@
-"""Cost and upcoming expense helpers for Car Manager România."""
+"""Modul pentru calcule de costuri și cheltuieli."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from .maintenance import (
 
 
 def safe_cost(value: Any) -> float:
-    """Return a safe positive cost value."""
+    """Funcție pentru safe cost."""
 
     try:
         cost = float(value or 0)
@@ -36,19 +36,19 @@ def safe_cost(value: Any) -> float:
 
 
 def maintenance_cost(vehicle: dict[str, Any], maintenance_type: str) -> float:
-    """Return estimated cost for one maintenance type."""
+    """Funcție pentru mentenanță cost."""
 
     return safe_cost(get_maintenance_value(vehicle, maintenance_type, COST_AMOUNT))
 
 
 def legal_cost(vehicle: dict[str, Any], legal_type: str) -> float:
-    """Return estimated cost for one legal term."""
+    """Funcție pentru legal cost."""
 
     return safe_cost(get_legal_value(vehicle, legal_type, COST_AMOUNT))
 
 
 def _format_due_date(days_remaining: int | None) -> str:
-    """Return ISO due date calculated from remaining days."""
+    """Funcție internă pentru formatare due dată."""
 
     if days_remaining is None:
         return ""
@@ -57,13 +57,13 @@ def _format_due_date(days_remaining: int | None) -> str:
 
 
 def _plate_key(plate: str | None) -> str:
-    """Normalize a license plate for matching."""
+    """Funcție internă pentru număr de înmatriculare cheie."""
 
     return (plate or "").replace(" ", "").upper()
 
 
 def _rovinieta_expense_from_coordinator(entry: Any, vehicle: dict[str, Any]) -> dict[str, Any] | None:
-    """Build rovinieta expense item from the e-rovinieta coordinator, when available."""
+    """Funcție internă pentru cheltuiala de rovinietă preluată din coordonator."""
 
     coordinator = getattr(entry.runtime_data, "rovinieta_coordinator", None)
     if coordinator is None or coordinator.data is None:
@@ -98,7 +98,7 @@ def _rovinieta_expense_from_coordinator(entry: Any, vehicle: dict[str, Any]) -> 
 
 
 def _manual_rovinieta_expense(vehicle: dict[str, Any]) -> dict[str, Any] | None:
-    """Build fallback manual rovinieta expense item, if a manual expiry date exists."""
+    """Funcție internă pentru manual rovinietă cheltuială."""
 
     legal_terms = vehicle.get(CONF_LEGAL_TERMS, {})
     if not isinstance(legal_terms, dict):
@@ -132,7 +132,7 @@ def upcoming_expense_items(
     *,
     only_with_cost: bool = False,
 ) -> list[dict[str, Any]]:
-    """Return upcoming expenses for a vehicle within the requested horizon."""
+    """Funcție pentru viitoare cheltuială elemente."""
 
     items: list[dict[str, Any]] = []
 
@@ -204,13 +204,13 @@ def upcoming_expense_items(
 
 
 def expense_total(items: list[dict[str, Any]]) -> float:
-    """Return total cost for a list of expense items."""
+    """Funcție pentru cheltuială total."""
 
     return round(sum(safe_cost(item.get("cost")) for item in items), 2)
 
 
 def annual_history_total(entry: Any, vehicle: dict[str, Any], year: int | None = None) -> float:
-    """Return total historic costs for one vehicle in a year."""
+    """Funcție pentru anual history total."""
 
     wanted_year = year or date.today().year
     vehicle_id = str(vehicle.get("vehicle_id", ""))

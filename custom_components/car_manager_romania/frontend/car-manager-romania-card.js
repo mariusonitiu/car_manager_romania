@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "v1.0.61b3"; }
+  static get version() { return "v1.0.62"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -484,7 +484,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const states = this._hass?.states || {};
 
     // Home Assistant poate genera entity_id-uri diferite în funcție de numele
-    // hub-ului/config entry-ului. La unele instalări entitățile sunt create cu
+    // hub-ului/intrării de configurare. La unele instalări entitățile sunt create cu
     // prefixul car_manager_romania_, iar la altele cu prefixul car_manager_.
     // Cardul trebuie să accepte ambele variante, fără redenumiri manuale.
     const prefixes = ["car_manager_romania", "car_manager"];
@@ -585,9 +585,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       const friendlyName = this._normalize(stateObj?.attributes?.friendly_name || "");
       const haystack = `${objectPart} ${friendlyName}`;
 
-      // Home Assistant can slightly alter Romanian slugs generated from names
-      // with diacritics. Match only Car Manager buttons, but accept partial
-      // forms such as "licen", "licenta", "licenta_2" etc.
+      // Home Assistant poate modifica ușor slug-urile generate din denumiri românești
+      // cu diacritice. Căutăm doar butoanele Car Manager, dar acceptăm forme parțiale
+      // precum „licen”, „licenta”, „licenta_2” etc.
       return (
         haystack.includes("actualizeaza") &&
         haystack.includes("status") &&
@@ -2574,7 +2574,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       try {
         await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
       } catch (_error) {
-        // Senzorii primesc oricum update prin dispatcher; acest update este doar un fallback vizual.
+        // Senzorii primesc oricum actualizări prin dispatcher; această actualizare este doar o rezervă vizuală.
       }
     }
   }
@@ -4082,7 +4082,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       : summaries.filter((summary) => summary.key === this._fuelVehicleFilter);
     const payload = {
       type: "car_manager_romania_fuel_history",
-      version: "1.0.16",
+      version: "1.0.62",
       generated_at: new Date().toISOString(),
       filter: this._fuelVehicleFilter,
       vehicles: filtered.map((summary) => ({

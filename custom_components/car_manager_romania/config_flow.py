@@ -1,4 +1,4 @@
-"""Config flow for Car Manager România."""
+"""Modul pentru configurarea integrației Car Manager România."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from .const import (
 
 
 class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Car Manager România."""
+    """Clasă pentru configurare flux."""
 
     VERSION = 1
 
@@ -35,7 +35,7 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> CarManagerOptionsFlow:
-        """Create the options flow."""
+        """Gestionează asincron operațiunea pentru get opțiuni flux."""
 
         return CarManagerOptionsFlow(config_entry)
 
@@ -43,7 +43,7 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Initial setup."""
+        """Gestionează asincron operațiunea pentru step user."""
 
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
@@ -70,10 +70,10 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class CarManagerOptionsFlow(config_entries.OptionsFlow):
-    """Handle options for Car Manager România."""
+    """Clasă pentru opțiuni flux."""
 
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
+        """Funcție internă pentru init."""
 
         self._entry = entry
 
@@ -81,7 +81,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Show options menu."""
+        """Gestionează asincron operațiunea pentru step init."""
 
         return self.async_show_menu(
             step_id="init",
@@ -92,7 +92,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Add a vehicle."""
+        """Gestionează asincron operațiunea pentru step adăugare vehicul."""
 
         if user_input is not None:
             existing_vehicles = list(
@@ -147,7 +147,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Configure internal e-rovinieta.ro account."""
+        """Gestionează asincron operațiunea pentru step rovinietă."""
 
         options = dict(self._entry.options)
 
@@ -197,7 +197,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         license_plate: str,
         vehicle_name: str,
     ) -> str:
-        """Generate a stable vehicle ID."""
+        """Funcție internă pentru generate vehicul ID."""
 
         base_id = slugify(license_plate) or slugify(vehicle_name) or "autovehicul"
         existing_ids = {vehicle.get("vehicle_id") for vehicle in vehicles}

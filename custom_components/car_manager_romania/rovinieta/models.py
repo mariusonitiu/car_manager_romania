@@ -1,4 +1,4 @@
-"""Dataclasses used by the e-rovinieta.ro integration."""
+"""Modul pentru modelele de date."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from typing import Any
 
 
 def utcnow() -> datetime:
-    """Return a timezone aware UTC datetime."""
+    """Funcție pentru utcnow."""
     return datetime.now(UTC)
 
 
 @dataclass(slots=True)
 class VehicleData:
-    """Normalized vehicle data."""
+    """Clasă pentru vehicul date."""
 
     id: int
     plate_no: str
@@ -36,7 +36,7 @@ class VehicleData:
 
 @dataclass(slots=True)
 class OrderData:
-    """Normalized order data."""
+    """Clasă pentru order date."""
 
     id: int
     order_type: str
@@ -53,7 +53,7 @@ class OrderData:
 
 @dataclass(slots=True)
 class AccountData:
-    """Aggregated account data."""
+    """Clasă pentru cont date."""
 
     account: dict[str, Any]
     vehicles: list[VehicleData]
