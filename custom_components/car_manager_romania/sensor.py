@@ -15,6 +15,18 @@ from .device import build_vehicle_device_info
 from . import CarManagerConfigEntry
 from .const import (
     ATTR_INTEGRATION_VERSION,
+    CONF_NOTIFICATIONS_ENABLED,
+    CONF_NOTIFY_MAINTENANCE,
+    CONF_NOTIFY_LEGAL,
+    CONF_NOTIFY_EQUIPMENT,
+    CONF_NOTIFY_BATTERY,
+    CONF_NOTIFY_EXPENSES,
+    DEFAULT_NOTIFICATIONS_ENABLED,
+    DEFAULT_NOTIFY_MAINTENANCE,
+    DEFAULT_NOTIFY_LEGAL,
+    DEFAULT_NOTIFY_EQUIPMENT,
+    DEFAULT_NOTIFY_BATTERY,
+    DEFAULT_NOTIFY_EXPENSES,
     CONF_KM,
     CONF_LICENSE_PLATE,
     LEGAL_END_DATE,
@@ -57,6 +69,7 @@ from .maintenance import (
 )
 from .costs import annual_history_total, expense_total, upcoming_expense_items
 from .fuel import enriched_fuel_receipts_for_vehicle, fuel_consumption_intervals, fuel_current_month_total, fuel_current_year_total, latest_average_consumption
+from .statistics import vehicle_chart_data, vehicle_statistics
 from .tire import tire_sets_for_vehicle, current_year_tire_cost_total
 from .equipment import equipment_items_for_vehicle, current_year_equipment_cost_total
 from .battery import battery_items_for_vehicle, current_battery_for_vehicle, current_year_battery_cost_total
@@ -198,9 +211,19 @@ class CarManagerStatusSensor(CarManagerBaseSensor):
                 }
             )
 
+        options = self._entry.options or {}
+
         return {
             ATTR_INTEGRATION_VERSION: VERSION,
             "inactive_vehicles": inactive_vehicles,
+            "notification_options": {
+                CONF_NOTIFICATIONS_ENABLED: bool(options.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED)),
+                CONF_NOTIFY_MAINTENANCE: bool(options.get(CONF_NOTIFY_MAINTENANCE, DEFAULT_NOTIFY_MAINTENANCE)),
+                CONF_NOTIFY_LEGAL: bool(options.get(CONF_NOTIFY_LEGAL, DEFAULT_NOTIFY_LEGAL)),
+                CONF_NOTIFY_EQUIPMENT: bool(options.get(CONF_NOTIFY_EQUIPMENT, DEFAULT_NOTIFY_EQUIPMENT)),
+                CONF_NOTIFY_BATTERY: bool(options.get(CONF_NOTIFY_BATTERY, DEFAULT_NOTIFY_BATTERY)),
+                CONF_NOTIFY_EXPENSES: bool(options.get(CONF_NOTIFY_EXPENSES, DEFAULT_NOTIFY_EXPENSES)),
+            },
         }
 
 
@@ -449,6 +472,11 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
 
         if self._vehicle.get(CONF_VIN):
             attributes[CONF_VIN] = self._vehicle[CONF_VIN]
+
+        # Afișăm statisticile cât mai sus în atribute, ca să poată fi verificate ușor
+        # în Developer Tools fără să fie nevoie de derulare prin istoricul lung.
+        attributes["vehicle_statistics"] = vehicle_statistics(self._entry, self._vehicle)
+        attributes["vehicle_chart_data"] = vehicle_chart_data(self._entry, self._vehicle)
 
         records = getattr(self._entry.runtime_data.service_history_store, "_records", [])
         vehicle_records: list[dict[str, Any]] = []

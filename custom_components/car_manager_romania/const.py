@@ -5,11 +5,11 @@ from __future__ import annotations
 DOMAIN = "car_manager_romania"
 
 DEFAULT_NAME = "Car Manager România"
-VERSION = "1.0.62"
+VERSION = "1.0.70b4"
 
 PLATFORMS: list[str] = ["sensor", "number", "date", "text", "button"]
 
-ATTR_INTEGRATION_VERSION = "1.0.62"
+ATTR_INTEGRATION_VERSION = "1.0.70b4"
 
 SIGNAL_VEHICLES_UPDATED = f"{DOMAIN}_vehicles_updated"
 SIGNAL_LICENSE_UPDATED = f"{DOMAIN}_license_updated"
@@ -48,6 +48,8 @@ SERVICE_IMPORT_DATA = "import_data"
 SERVICE_SET_LEGAL_OPTION = "set_legal_option"
 SERVICE_CLEANUP_ORPHAN_ENTITIES = "cleanup_orphan_entities"
 SERVICE_REFRESH_LICENSE_STATUS = "refresh_license_status"
+
+SERVICE_SET_NOTIFICATION_OPTIONS = "set_notification_options"
 SERVICE_ADD_FUEL_RECEIPT = "add_fuel_receipt"
 SERVICE_UPDATE_FUEL_RECEIPT = "update_fuel_receipt"
 SERVICE_DELETE_FUEL_RECEIPT = "delete_fuel_receipt"
@@ -330,6 +332,21 @@ CONF_ROVINIETA_SCAN_INTERVAL = "rovinieta_scan_interval"
 
 DEFAULT_ROVINIETA_SCAN_INTERVAL = 6 * 60 * 60
 MIN_ROVINIETA_SCAN_INTERVAL = 15 * 60
+
+# Setări pentru notificările generate de integrare.
+CONF_NOTIFICATIONS_ENABLED = "notifications_enabled"
+CONF_NOTIFY_MAINTENANCE = "notify_maintenance"
+CONF_NOTIFY_LEGAL = "notify_legal"
+CONF_NOTIFY_EQUIPMENT = "notify_equipment"
+CONF_NOTIFY_BATTERY = "notify_battery"
+CONF_NOTIFY_EXPENSES = "notify_expenses"
+
+DEFAULT_NOTIFICATIONS_ENABLED = True
+DEFAULT_NOTIFY_MAINTENANCE = True
+DEFAULT_NOTIFY_LEGAL = True
+DEFAULT_NOTIFY_EQUIPMENT = True
+DEFAULT_NOTIFY_BATTERY = True
+DEFAULT_NOTIFY_EXPENSES = True
 
 
 # Termene legale gestionate manual.

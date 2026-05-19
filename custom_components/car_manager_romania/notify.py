@@ -12,6 +12,18 @@ from . import CarManagerConfigEntry
 from .const import (
     CONF_LICENSE_PLATE,
     CONF_NAME,
+    CONF_NOTIFICATIONS_ENABLED,
+    CONF_NOTIFY_BATTERY,
+    CONF_NOTIFY_EQUIPMENT,
+    CONF_NOTIFY_EXPENSES,
+    CONF_NOTIFY_LEGAL,
+    CONF_NOTIFY_MAINTENANCE,
+    DEFAULT_NOTIFICATIONS_ENABLED,
+    DEFAULT_NOTIFY_BATTERY,
+    DEFAULT_NOTIFY_EQUIPMENT,
+    DEFAULT_NOTIFY_EXPENSES,
+    DEFAULT_NOTIFY_LEGAL,
+    DEFAULT_NOTIFY_MAINTENANCE,
     LEGAL_STATUS_EXPIRED,
     LEGAL_STATUS_SOON,
     LEGAL_STATUS_UNKNOWN,
@@ -36,6 +48,56 @@ from .storage import CarManagerNotificationStore
 
 ROVINIETA_SOON_DAYS_THRESHOLD = 30
 MAX_ITEMS_IN_NOTIFICATION = 8
+
+
+def _option_enabled(
+    entry: CarManagerConfigEntry,
+    key: str,
+    default: bool,
+) -> bool:
+    """Returnează starea unei opțiuni de notificare, cu valoare implicită sigură."""
+
+    return bool((entry.options or {}).get(key, default))
+
+
+def _notifications_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările sunt active la nivel global."""
+
+    return _option_enabled(
+        entry,
+        CONF_NOTIFICATIONS_ENABLED,
+        DEFAULT_NOTIFICATIONS_ENABLED,
+    )
+
+
+def _notify_maintenance_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările de mentenanță sunt active."""
+
+    return _option_enabled(entry, CONF_NOTIFY_MAINTENANCE, DEFAULT_NOTIFY_MAINTENANCE)
+
+
+def _notify_legal_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările pentru termene legale sunt active."""
+
+    return _option_enabled(entry, CONF_NOTIFY_LEGAL, DEFAULT_NOTIFY_LEGAL)
+
+
+def _notify_equipment_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările pentru echipamente auto sunt active."""
+
+    return _option_enabled(entry, CONF_NOTIFY_EQUIPMENT, DEFAULT_NOTIFY_EQUIPMENT)
+
+
+def _notify_battery_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările pentru bateria auto sunt active."""
+
+    return _option_enabled(entry, CONF_NOTIFY_BATTERY, DEFAULT_NOTIFY_BATTERY)
+
+
+def _notify_expenses_enabled(entry: CarManagerConfigEntry) -> bool:
+    """Verifică dacă notificările pentru cheltuieli estimate sunt active."""
+
+    return _option_enabled(entry, CONF_NOTIFY_EXPENSES, DEFAULT_NOTIFY_EXPENSES)
 
 
 def _safe_key(value: str) -> str:
@@ -223,72 +285,76 @@ def _build_vehicle_issue_summary(
     critical_items: list[dict[str, Any]] = []
     warning_items: list[dict[str, Any]] = []
 
-    for maintenance_type, maintenance_label in MAINTENANCE_TYPES.items():
-        status = maintenance_status(vehicle, maintenance_type)
-        if status in (MAINTENANCE_STATUS_OK, MAINTENANCE_STATUS_UNKNOWN):
-            continue
-        if status not in (MAINTENANCE_STATUS_SOON, MAINTENANCE_STATUS_OVERDUE):
-            continue
+    if _notify_maintenance_enabled(entry):
+        for maintenance_type, maintenance_label in MAINTENANCE_TYPES.items():
+            status = maintenance_status(vehicle, maintenance_type)
+            if status in (MAINTENANCE_STATUS_OK, MAINTENANCE_STATUS_UNKNOWN):
+                continue
+            if status not in (MAINTENANCE_STATUS_SOON, MAINTENANCE_STATUS_OVERDUE):
+                continue
 
-        km_remaining, days_remaining = maintenance_remaining_values(
-            vehicle,
-            maintenance_type,
-        )
-        item = {
-            "category": "maintenance",
-            "key": maintenance_type,
-            "label": maintenance_label,
-            "status": status,
-            "days_remaining": days_remaining,
-            "km_remaining": km_remaining,
-            "detail": _format_item_detail(
-                status=status,
-                days_remaining=days_remaining,
-                km_remaining=km_remaining,
-            ),
-        }
-        if status == MAINTENANCE_STATUS_OVERDUE:
-            critical_items.append(item)
-        else:
-            warning_items.append(item)
+            km_remaining, days_remaining = maintenance_remaining_values(
+                vehicle,
+                maintenance_type,
+            )
+            item = {
+                "category": "maintenance",
+                "key": maintenance_type,
+                "label": maintenance_label,
+                "status": status,
+                "days_remaining": days_remaining,
+                "km_remaining": km_remaining,
+                "detail": _format_item_detail(
+                    status=status,
+                    days_remaining=days_remaining,
+                    km_remaining=km_remaining,
+                ),
+            }
+            if status == MAINTENANCE_STATUS_OVERDUE:
+                critical_items.append(item)
+            else:
+                warning_items.append(item)
 
-    for legal_type, legal_label in LEGAL_TYPES.items():
-        if legal_type == LEGAL_TYPE_CASCO and is_legal_ignored(vehicle, legal_type):
-            continue
+    if _notify_legal_enabled(entry):
+        for legal_type, legal_label in LEGAL_TYPES.items():
+            if legal_type == LEGAL_TYPE_CASCO and is_legal_ignored(vehicle, legal_type):
+                continue
 
-        current_legal_status = legal_status(vehicle, legal_type)
-        if current_legal_status in (LEGAL_STATUS_VALID, LEGAL_STATUS_UNKNOWN):
-            continue
-        if current_legal_status not in (LEGAL_STATUS_SOON, LEGAL_STATUS_EXPIRED):
-            continue
+            current_legal_status = legal_status(vehicle, legal_type)
+            if current_legal_status in (LEGAL_STATUS_VALID, LEGAL_STATUS_UNKNOWN):
+                continue
+            if current_legal_status not in (LEGAL_STATUS_SOON, LEGAL_STATUS_EXPIRED):
+                continue
 
-        days_remaining = legal_days_remaining(vehicle, legal_type)
-        item = {
-            "category": "legal",
-            "key": legal_type,
-            "label": legal_label,
-            "status": current_legal_status,
-            "days_remaining": days_remaining,
-            "km_remaining": None,
-            "detail": _format_item_detail(
-                status=current_legal_status,
-                days_remaining=days_remaining,
-            ),
-        }
-        if current_legal_status == LEGAL_STATUS_EXPIRED:
-            critical_items.append(item)
-        else:
-            warning_items.append(item)
+            days_remaining = legal_days_remaining(vehicle, legal_type)
+            item = {
+                "category": "legal",
+                "key": legal_type,
+                "label": legal_label,
+                "status": current_legal_status,
+                "days_remaining": days_remaining,
+                "km_remaining": None,
+                "detail": _format_item_detail(
+                    status=current_legal_status,
+                    days_remaining=days_remaining,
+                ),
+            }
+            if current_legal_status == LEGAL_STATUS_EXPIRED:
+                critical_items.append(item)
+            else:
+                warning_items.append(item)
 
-    equipment_critical, equipment_warning = equipment_issues_for_vehicle(entry, vehicle)
-    critical_items.extend(equipment_critical)
-    warning_items.extend(equipment_warning)
+    if _notify_equipment_enabled(entry):
+        equipment_critical, equipment_warning = equipment_issues_for_vehicle(entry, vehicle)
+        critical_items.extend(equipment_critical)
+        warning_items.extend(equipment_warning)
 
-    battery_critical, battery_warning = battery_issues_for_vehicle(entry, vehicle)
-    critical_items.extend(battery_critical)
-    warning_items.extend(battery_warning)
+    if _notify_battery_enabled(entry):
+        battery_critical, battery_warning = battery_issues_for_vehicle(entry, vehicle)
+        critical_items.extend(battery_critical)
+        warning_items.extend(battery_warning)
 
-    rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle)
+    rovinieta_vehicle = _find_rovinieta_vehicle(entry, vehicle) if _notify_legal_enabled(entry) else None
     if rovinieta_vehicle is not None:
         current_rovinieta_status = _rovinieta_status(rovinieta_vehicle)
         if current_rovinieta_status not in ("validă", "necunoscut"):
@@ -563,6 +629,10 @@ async def async_check_maintenance_notifications(
     for vehicle in entry.runtime_data.vehicles:
         vehicle_id = str(vehicle["vehicle_id"])
 
+        if not _notifications_enabled(entry):
+            await _clear_vehicle_notifications(hass, store, vehicle_id)
+            continue
+
         if not license_allows_all and first_vehicle_id and vehicle_id != first_vehicle_id:
             await _clear_vehicle_notifications(hass, store, vehicle_id)
             continue
@@ -587,9 +657,13 @@ async def async_check_maintenance_notifications(
                 _build_overall_message(vehicle, critical_items, warning_items),
             )
 
-        expenses = upcoming_expense_items(entry, vehicle, 90, only_with_cost=True)
         expenses_key = _expenses_notification_key(vehicle_id)
         expenses_notification_id = _expenses_notification_id(vehicle_id)
+        if not _notify_expenses_enabled(entry):
+            await _clear_notification(hass, store, expenses_key, expenses_notification_id)
+            continue
+
+        expenses = upcoming_expense_items(entry, vehicle, 90, only_with_cost=True)
         if not expenses:
             await _clear_notification(hass, store, expenses_key, expenses_notification_id)
             continue

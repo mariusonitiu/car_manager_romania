@@ -12,6 +12,18 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_KM,
+    CONF_NOTIFICATIONS_ENABLED,
+    CONF_NOTIFY_BATTERY,
+    CONF_NOTIFY_EQUIPMENT,
+    CONF_NOTIFY_EXPENSES,
+    CONF_NOTIFY_LEGAL,
+    CONF_NOTIFY_MAINTENANCE,
+    DEFAULT_NOTIFICATIONS_ENABLED,
+    DEFAULT_NOTIFY_BATTERY,
+    DEFAULT_NOTIFY_EQUIPMENT,
+    DEFAULT_NOTIFY_EXPENSES,
+    DEFAULT_NOTIFY_LEGAL,
+    DEFAULT_NOTIFY_MAINTENANCE,
     CONF_LICENSE_PLATE,
     CONF_NAME,
     CONF_ROVINIETA_PASSWORD,
@@ -85,7 +97,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_vehicle", "rovinieta"],
+            menu_options=["add_vehicle", "rovinieta", "notifications"],
         )
 
     async def async_step_add_vehicle(
@@ -189,6 +201,87 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "password_note": "Lasă parola goală dacă nu vrei să o modifici.",
             },
+        )
+
+
+    async def async_step_notifications(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        """Configurează notificările generate de integrare."""
+
+        options = dict(self._entry.options)
+
+        if user_input is not None:
+            options[CONF_NOTIFICATIONS_ENABLED] = bool(
+                user_input.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED)
+            )
+            options[CONF_NOTIFY_MAINTENANCE] = bool(
+                user_input.get(CONF_NOTIFY_MAINTENANCE, DEFAULT_NOTIFY_MAINTENANCE)
+            )
+            options[CONF_NOTIFY_LEGAL] = bool(
+                user_input.get(CONF_NOTIFY_LEGAL, DEFAULT_NOTIFY_LEGAL)
+            )
+            options[CONF_NOTIFY_EQUIPMENT] = bool(
+                user_input.get(CONF_NOTIFY_EQUIPMENT, DEFAULT_NOTIFY_EQUIPMENT)
+            )
+            options[CONF_NOTIFY_BATTERY] = bool(
+                user_input.get(CONF_NOTIFY_BATTERY, DEFAULT_NOTIFY_BATTERY)
+            )
+            options[CONF_NOTIFY_EXPENSES] = bool(
+                user_input.get(CONF_NOTIFY_EXPENSES, DEFAULT_NOTIFY_EXPENSES)
+            )
+
+            return self.async_create_entry(title="", data=options)
+
+        return self.async_show_form(
+            step_id="notifications",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_NOTIFICATIONS_ENABLED,
+                        default=options.get(
+                            CONF_NOTIFICATIONS_ENABLED,
+                            DEFAULT_NOTIFICATIONS_ENABLED,
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_MAINTENANCE,
+                        default=options.get(
+                            CONF_NOTIFY_MAINTENANCE,
+                            DEFAULT_NOTIFY_MAINTENANCE,
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_LEGAL,
+                        default=options.get(
+                            CONF_NOTIFY_LEGAL,
+                            DEFAULT_NOTIFY_LEGAL,
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_EQUIPMENT,
+                        default=options.get(
+                            CONF_NOTIFY_EQUIPMENT,
+                            DEFAULT_NOTIFY_EQUIPMENT,
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_BATTERY,
+                        default=options.get(
+                            CONF_NOTIFY_BATTERY,
+                            DEFAULT_NOTIFY_BATTERY,
+                        ),
+                    ): bool,
+                    vol.Optional(
+                        CONF_NOTIFY_EXPENSES,
+                        default=options.get(
+                            CONF_NOTIFY_EXPENSES,
+                            DEFAULT_NOTIFY_EXPENSES,
+                        ),
+                    ): bool,
+                }
+            ),
         )
 
     @staticmethod
