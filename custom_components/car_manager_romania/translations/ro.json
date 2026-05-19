@@ -18,8 +18,7 @@
         "title": "Configurare Car Manager România",
         "menu_options": {
           "add_vehicle": "Adaugă autovehicul",
-          "rovinieta": "Configurează cont e-rovinieta.ro",
-          "notifications": "Configurează notificări"
+          "rovinieta": "Configurează cont e-rovinieta.ro"
         }
       },
       "add_vehicle": {
@@ -38,17 +37,6 @@
           "rovinieta_username": "Utilizator e-rovinieta.ro",
           "rovinieta_password": "Parolă e-rovinieta.ro",
           "rovinieta_scan_interval": "Interval actualizare rovinietă, în secunde"
-        }
-      },
-      "notifications": {
-        "title": "Notificări Car Manager România",
-        "data": {
-          "notifications_enabled": "Activează notificările",
-          "notify_maintenance": "Notificări mentenanță",
-          "notify_legal": "Notificări RCA / ITP / rovinietă / CASCO",
-          "notify_equipment": "Notificări echipamente auto",
-          "notify_battery": "Notificări baterie auto",
-          "notify_expenses": "Notificări cheltuieli estimate"
         }
       }
     }

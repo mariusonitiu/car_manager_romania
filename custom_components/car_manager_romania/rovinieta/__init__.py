@@ -1,1 +1,1 @@
-"""Modul principal pentru integrarea Car Manager România."""
+"""Internal rovinieta module for Car Manager România."""

@@ -1,5 +1,5 @@
 class CarManagerRomaniaCard extends HTMLElement {
-  static get version() { return "v1.0.70b4"; }
+  static get version() { return "v1.0.61b3"; }
   setConfig(config) {
     this.config = config || {};
     this._editMode = this.config.edit_mode ?? false;
@@ -32,12 +32,10 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._fuelReceiptBusy = this._fuelReceiptBusy || null;
     this._fuelReceiptMessage = this._fuelReceiptMessage || {};
     this._fuelVehicleFilter = this._fuelVehicleFilter || "all";
-    this._statisticsVehicleFilter = this._statisticsVehicleFilter || "all";
-    this._statisticsVisibleSections = this._statisticsVisibleSections || this._loadStatisticsVisibleSections();
-    this._statisticsSectionsOpen = this._statisticsSectionsOpen ?? false;
     this._fuelPeriodFilter = this._fuelPeriodFilter || "current_year";
     this._fuelCustomFrom = this._fuelCustomFrom || "";
     this._fuelCustomTo = this._fuelCustomTo || "";
+    this._scrollPositions = this._scrollPositions || {};
     this._tireVehicleFilter = this._tireVehicleFilter || "all";
     this._tireFormOpen = this._tireFormOpen || new Set();
     this._tireSetDrafts = this._tireSetDrafts || {};
@@ -65,10 +63,6 @@ class CarManagerRomaniaCard extends HTMLElement {
     this._backupBusy = this._backupBusy || null;
     this._backupFilename = this._backupFilename || "car_manager_romania_backup.json";
     this._backupMessage = this._backupMessage || "";
-    this._notificationsOpen = this._notificationsOpen || false;
-    this._notificationOptionsDraft = this._notificationOptionsDraft || null;
-    this._notificationBusy = this._notificationBusy || false;
-    this._notificationMessage = this._notificationMessage || "";
     this._activeTab = this._activeTab || this.config.default_tab || "vehicles";
     this._tabHoverLabel = this._tabHoverLabel || "";
   }
@@ -92,6 +86,7 @@ class CarManagerRomaniaCard extends HTMLElement {
 
   render() {
     if (!this._hass) return;
+    this._captureScrollablePositions();
 
     const inactiveVehiclesAll = this._buildInactiveVehicles();
     this._inactiveVehicleIds = new Set(inactiveVehiclesAll.map((vehicle) => vehicle.vehicle_id).filter(Boolean));
@@ -131,19 +126,15 @@ class CarManagerRomaniaCard extends HTMLElement {
             </div>
             <div class="cmr-header-actions">
               <button class="cmr-mode" data-action="toggle-add-vehicle">Adaugă autovehicul</button>
-              <button class="cmr-mode" data-action="toggle-notifications">Notificări</button>
               <button class="cmr-mode" data-action="toggle-backup">Backup</button>
             </div>
           </div>
           ${this._renderTabs()}
           ${this._addVehicleOpen ? this._renderAddVehicleForm() : ""}
           ${this._backupOpen ? this._renderBackupPanel() : ""}
-          ${this._notificationsOpen ? this._renderNotificationOptionsPanel() : ""}
           ${this._activeTab === "costs"
             ? this._renderCostsTab(activeVisibleVehicles)
-            : this._activeTab === "statistics"
-              ? this._renderStatisticsTab(activeVisibleVehicles)
-              : this._activeTab === "fuel"
+            : this._activeTab === "fuel"
               ? this._renderFuelTab(activeVisibleVehicles)
               : this._activeTab === "tires"
                 ? this._renderTiresTab(activeVisibleVehicles)
@@ -159,6 +150,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     `;
 
     this._attachEvents();
+    this._restoreScrollablePositions();
   }
 
   _buildVehicles() {
@@ -384,115 +376,6 @@ class CarManagerRomaniaCard extends HTMLElement {
   }
 
 
-  _notificationOptionDefinitions() {
-    return [
-      ["notifications_enabled", "Activează notificările"],
-      ["notify_maintenance", "Notificări mentenanță"],
-      ["notify_legal", "Notificări RCA / ITP / rovinietă / CASCO"],
-      ["notify_equipment", "Notificări echipamente auto"],
-      ["notify_battery", "Notificări baterie auto"],
-      ["notify_expenses", "Notificări cheltuieli estimate"],
-    ];
-  }
-
-  _defaultNotificationOptions() {
-    return Object.fromEntries(this._notificationOptionDefinitions().map(([key]) => [key, true]));
-  }
-
-  _currentNotificationOptions() {
-    const defaults = this._defaultNotificationOptions();
-
-    for (const stateObj of Object.values(this._hass?.states || {})) {
-      const options = stateObj?.attributes?.notification_options;
-      if (!options || typeof options !== "object") continue;
-
-      const normalized = { ...defaults };
-      this._notificationOptionDefinitions().forEach(([key]) => {
-        if (Object.prototype.hasOwnProperty.call(options, key)) {
-          normalized[key] = Boolean(options[key]);
-        }
-      });
-      return normalized;
-    }
-
-    return defaults;
-  }
-
-  _notificationOptionsForForm() {
-    return { ...this._currentNotificationOptions(), ...(this._notificationOptionsDraft || {}) };
-  }
-
-  _notificationOptionsEntityIds() {
-    return Object.entries(this._hass?.states || {})
-      .filter(([, stateObj]) => {
-        const attrs = stateObj?.attributes || {};
-        return attrs.notification_options && typeof attrs.notification_options === "object";
-      })
-      .map(([entityId]) => entityId);
-  }
-
-  _renderNotificationOptionsPanel() {
-    const values = this._notificationOptionsForForm();
-    const busy = Boolean(this._notificationBusy);
-
-    return `
-      <section class="cmr-backup-panel">
-        <div class="cmr-section-title">Notificări</div>
-        <div class="cmr-backup-text">
-          Alege rapid ce categorii de notificări vrei să fie active. Setările se salvează în integrare, nu doar în browser.
-        </div>
-        <form data-form="notification-options">
-          <div class="cmr-notification-options">
-            ${this._notificationOptionDefinitions().map(([key, label]) => `
-              <label class="cmr-check-row cmr-notification-check">
-                <input type="checkbox" name="${this._escape(key)}" ${values[key] ? "checked" : ""} ${busy ? "disabled" : ""}>
-                <span>${this._escape(label)}</span>
-              </label>
-            `).join("")}
-          </div>
-          <div class="cmr-backup-actions">
-            <button class="cmr-action" type="submit" ${busy ? "disabled" : ""}>${busy ? "Se salvează..." : "Salvează notificările"}</button>
-            <button class="cmr-action cmr-secondary" type="button" data-action="notifications-reset" ${busy ? "disabled" : ""}>Activează toate</button>
-          </div>
-        </form>
-        ${this._notificationMessage ? `<div class="cmr-message">${this._escape(this._notificationMessage)}</div>` : ""}
-      </section>
-    `;
-  }
-
-  async _saveNotificationOptions(payload) {
-    if (!this._hass?.services?.car_manager_romania?.set_notification_options) {
-      this._notificationMessage = "Serviciul pentru setarea notificărilor nu este disponibil. Fă restart Home Assistant după actualizare.";
-      this.render();
-      return;
-    }
-
-    this._notificationBusy = true;
-    this._notificationMessage = "Se salvează setările...";
-    this.render();
-
-    try {
-      await this._hass.callService("car_manager_romania", "set_notification_options", payload);
-      this._notificationOptionsDraft = { ...payload };
-      this._notificationMessage = "Setările notificărilor au fost salvate.";
-
-      const entityIds = this._notificationOptionsEntityIds();
-      if (entityIds.length) {
-        try {
-          await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
-        } catch (_error) {
-          // Atributul se actualizează și prin mecanismul normal al Home Assistant; această actualizare este doar o rezervă vizuală.
-        }
-      }
-    } catch (error) {
-      this._notificationMessage = error?.message || "Nu am putut salva setările notificărilor.";
-    } finally {
-      this._notificationBusy = false;
-      this.render();
-    }
-  }
-
-
   _tabDefinitions() {
     const basicTabs = [
       ["vehicles", "Mașini", "mdi:car-multiple"],
@@ -506,7 +389,6 @@ class CarManagerRomaniaCard extends HTMLElement {
     return [
       ["vehicles", "Mașini", "mdi:car-multiple"],
       ["costs", "Costuri", "mdi:cash-multiple"],
-      ["statistics", "Statistici", "mdi:chart-line"],
       ["fuel", "Combustibil", "mdi:gas-station"],
       ["tires", "Anvelope", "mdi:tire"],
       ["equipment", "Siguranță", "mdi:shield-car"],
@@ -605,7 +487,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const states = this._hass?.states || {};
 
     // Home Assistant poate genera entity_id-uri diferite în funcție de numele
-    // hub-ului/intrării de configurare. La unele instalări entitățile sunt create cu
+    // hub-ului/config entry-ului. La unele instalări entitățile sunt create cu
     // prefixul car_manager_romania_, iar la altele cu prefixul car_manager_.
     // Cardul trebuie să accepte ambele variante, fără redenumiri manuale.
     const prefixes = ["car_manager_romania", "car_manager"];
@@ -706,9 +588,9 @@ class CarManagerRomaniaCard extends HTMLElement {
       const friendlyName = this._normalize(stateObj?.attributes?.friendly_name || "");
       const haystack = `${objectPart} ${friendlyName}`;
 
-      // Home Assistant poate modifica ușor slug-urile generate din denumiri românești
-      // cu diacritice. Căutăm doar butoanele Car Manager, dar acceptăm forme parțiale
-      // precum „licen”, „licenta”, „licenta_2” etc.
+      // Home Assistant can slightly alter Romanian slugs generated from names
+      // with diacritics. Match only Car Manager buttons, but accept partial
+      // forms such as "licen", "licenta", "licenta_2" etc.
       return (
         haystack.includes("actualizeaza") &&
         haystack.includes("status") &&
@@ -895,154 +777,6 @@ class CarManagerRomaniaCard extends HTMLElement {
           ${this._renderUpcomingCostItems(allUpcoming90)}
         </div>
       </section>
-    `;
-  }
-
-
-  _statisticsSectionDefinitions() {
-    return [
-      ["summary", "Statistici utilizare"],
-      ["mileage", "Evoluție kilometraj"],
-      ["consumption", "Evoluție consum"],
-      ["fuel_cost", "Cost combustibil lunar"],
-      ["category_cost", "Costuri pe categorii"],
-    ];
-  }
-
-  _statisticsSectionsStorageKey() {
-    return "car_manager_romania_statistics_sections";
-  }
-
-  _loadStatisticsVisibleSections() {
-    const defaults = new Set(this._statisticsSectionDefinitions().map(([key]) => key));
-    try {
-      const raw = window.localStorage?.getItem(this._statisticsSectionsStorageKey());
-      if (!raw) return defaults;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return defaults;
-      const allowed = new Set(this._statisticsSectionDefinitions().map(([key]) => key));
-      return new Set(parsed.filter((key) => allowed.has(key)));
-    } catch (_err) {
-      return defaults;
-    }
-  }
-
-  _saveStatisticsVisibleSections() {
-    try {
-      const values = Array.from(this._statisticsVisibleSections || []);
-      window.localStorage?.setItem(this._statisticsSectionsStorageKey(), JSON.stringify(values));
-    } catch (_err) {
-      // Preferăm să nu afișăm erori utilizatorului pentru o setare locală opțională.
-    }
-  }
-
-  _isStatisticsSectionVisible(key) {
-    if (!this._statisticsVisibleSections) {
-      this._statisticsVisibleSections = this._loadStatisticsVisibleSections();
-    }
-    return this._statisticsVisibleSections.has(key);
-  }
-
-  _renderStatisticsSectionsFilter() {
-    const definitions = this._statisticsSectionDefinitions();
-    const visible = this._statisticsVisibleSections || this._loadStatisticsVisibleSections();
-    return `
-      <details class="cmr-statistics-sections" data-action="statistics-sections-menu" ${this._statisticsSectionsOpen ? "open" : ""}>
-        <summary>Afișare statistici</summary>
-        <div class="cmr-statistics-sections-menu">
-          ${definitions.map(([key, label]) => `
-            <label class="cmr-check-row">
-              <input type="checkbox" data-action="statistics-section-toggle" value="${this._escape(key)}" ${visible.has(key) ? "checked" : ""}>
-              <span>${this._escape(label)}</span>
-            </label>
-          `).join("")}
-          <button class="cmr-mode cmr-statistics-reset" data-action="statistics-sections-reset" type="button">Afișează toate</button>
-        </div>
-      </details>
-    `;
-  }
-
-
-  _renderStatisticsTab(vehicles) {
-    if (!vehicles.length) return this._renderEmpty();
-
-    const options = vehicles.map((vehicle) => ({
-      key: this._statisticsVehicleKey(vehicle),
-      label: vehicle.name || vehicle.label || vehicle.licensePlate || vehicle.plate || "Autovehicul",
-    })).filter((item) => item.key);
-
-    if (this._statisticsVehicleFilter !== "all" && !options.some((item) => item.key === this._statisticsVehicleFilter)) {
-      this._statisticsVehicleFilter = "all";
-    }
-
-    const selectedVehicles = this._statisticsVehicleFilter === "all"
-      ? vehicles
-      : vehicles.filter((vehicle) => this._statisticsVehicleKey(vehicle) === this._statisticsVehicleFilter);
-
-    const showSummary = this._isStatisticsSectionVisible("summary");
-    const showMileage = this._isStatisticsSectionVisible("mileage");
-    const showConsumption = this._isStatisticsSectionVisible("consumption");
-    const showFuelCost = this._isStatisticsSectionVisible("fuel_cost");
-    const showCategoryCost = this._isStatisticsSectionVisible("category_cost");
-
-    const panels = selectedVehicles.map((vehicle) => {
-      const stats = showSummary ? this._renderVehicleStatistics(vehicle) : "";
-      const mileageChart = showMileage ? this._renderMileageChart(vehicle) : "";
-      const consumptionChart = showConsumption ? this._renderConsumptionChart(vehicle) : "";
-      const monthlyFuelCostChart = showFuelCost ? this._renderFuelMonthlyCostChart(vehicle) : "";
-      const categoryCostChart = showCategoryCost ? this._renderCostCategoryChart(vehicle) : "";
-      if (!stats && !mileageChart && !consumptionChart && !monthlyFuelCostChart && !categoryCostChart) return "";
-      const plate = vehicle.licensePlate || vehicle.plate || "";
-      return `
-        <section class="cmr-vehicle cmr-statistics-vehicle">
-          <div class="cmr-vehicle-head">
-            <div>
-              <div class="cmr-vehicle-title">${this._escape(vehicle.name || "Autovehicul")}</div>
-              ${plate ? `<div class="cmr-plate">${this._escape(plate)}</div>` : ""}
-            </div>
-          </div>
-          <div class="cmr-details cmr-statistics-details">
-            ${stats}
-            ${mileageChart}
-            ${consumptionChart}
-            ${monthlyFuelCostChart}
-            ${categoryCostChart}
-          </div>
-        </section>
-      `;
-    }).filter(Boolean).join("");
-
-    return `
-      <section class="cmr-costs-panel cmr-statistics-panel">
-        <div class="cmr-section-head cmr-statistics-head">
-          <div>
-            <div class="cmr-section-title">Statistici</div>
-            <div class="cmr-row-muted">Evoluție kilometraj, consum și costuri calculate din datele salvate local.</div>
-          </div>
-          <div class="cmr-statistics-controls">
-            ${this._renderStatisticsVehicleFilter(options)}
-            ${this._renderStatisticsSectionsFilter()}
-          </div>
-        </div>
-        ${panels || `<div class="cmr-history-empty">Nu există încă suficiente date pentru statisticile selectate.</div>`}
-      </section>
-    `;
-  }
-
-  _statisticsVehicleKey(vehicle) {
-    return vehicle?.vehicle_id || vehicle?.key || vehicle?.vin || vehicle?.licensePlate || vehicle?.plate || vehicle?.label || "";
-  }
-
-  _renderStatisticsVehicleFilter(options) {
-    if (!Array.isArray(options) || options.length <= 1) return "";
-    return `
-      <label class="cmr-fuel-filter cmr-statistics-filter">
-        <span>Autovehicul</span>
-        <select data-action="statistics-filter">
-          <option value="all" ${this._statisticsVehicleFilter === "all" ? "selected" : ""}>Toate</option>
-          ${options.map((item) => `<option value="${this._escape(item.key)}" ${this._statisticsVehicleFilter === item.key ? "selected" : ""}>${this._escape(item.label)}</option>`).join("")}
-        </select>
-      </label>
     `;
   }
 
@@ -1527,7 +1261,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const receipts = stats.receipts || [];
     const periodLabel = summary.periodLabel || this._fuelPeriodLabel(summary.period || this._fuelPeriodBounds());
     if (!receipts.length) return `<div class="cmr-history-empty">Nu există bonuri de combustibil pentru ${this._escape(periodLabel)}.</div>`;
-    return `<div class="cmr-recent-title">Istoric alimentări <span>${this._escape(periodLabel)} · ${receipts.length} bonuri</span></div><div class="cmr-cost-list cmr-fuel-history-list">${receipts.map((receipt) => {
+    return `<div class="cmr-recent-title">Istoric alimentări <span>${this._escape(periodLabel)} · ${receipts.length} bonuri</span></div><div class="cmr-cost-list cmr-fuel-history-list" data-scroll-preserve="fuel-history" data-scroll-key="fuel-history-${this._escape(summary.key || 'all')}">${receipts.map((receipt) => {
       const receiptId = receipt.receipt_id || "";
       const isEditing = receiptId && this._fuelReceiptEditOpen.has(receiptId);
       return `
@@ -2052,7 +1786,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     const expanded = this._showDetails || this._expandedVehicles.has(vehicle.key);
     const premiumAccess = this._licenseAllowsPremiumFeatures();
     const detailsHtml = premiumAccess
-      ? `${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderVehicleStatistics(vehicle)}${this._renderTireMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}`
+      ? `${this._renderMaintenance(vehicle)}${this._renderFuelMini(vehicle)}${this._renderTireMini(vehicle)}${this._renderConsumables(vehicle)}${this._renderServiceHistory(vehicle)}${this._showDetails ? this._renderRovinietaDetails(vehicle) : ""}`
       : `${this._renderMaintenance(vehicle)}${this._renderLegalDetails(summary)}${this._renderRovinietaDetails(vehicle)}${this._renderFreeModeNotice()}`;
 
     return `
@@ -2215,522 +1949,6 @@ class CarManagerRomaniaCard extends HTMLElement {
 
     return `<div class="cmr-section"><div class="cmr-section-title">Termene legale</div>${rows}</div>`;
   }
-
-  _renderVehicleStatistics(vehicle) {
-    const attrs = this._vehicleStatusAttributes(vehicle);
-    const stats = attrs.vehicle_statistics || {};
-    const fuel = stats.fuel || {};
-    const mileage = stats.mileage || {};
-
-    const rows = [];
-    const kmPerDay = this._toNumber(mileage.average_km_per_day);
-    const kmPerMonth = this._toNumber(mileage.average_km_per_month);
-    const monthFuelCost = this._toNumber(fuel.current_month_cost);
-    const yearFuelCost = this._toNumber(fuel.current_year_cost);
-    const serviceYearCost = this._toNumber(stats.service_history_current_year_cost ?? mileage.service_history_current_year_cost);
-    const averageConsumption = Number(fuel.average_consumption_l_100km);
-    const lastConsumption = Number(fuel.last_consumption_l_100km);
-
-    if (Number.isFinite(kmPerDay) && kmPerDay > 0) {
-      rows.push(this._renderRow("Km medii / zi", `${this._formatNumber(kmPerDay, 1)} km`, "", "", ""));
-    }
-    if (Number.isFinite(kmPerMonth) && kmPerMonth > 0) {
-      rows.push(this._renderRow("Km medii / lună", `${this._formatNumber(kmPerMonth, 0)} km`, "", "", ""));
-    }
-    if (monthFuelCost > 0) {
-      rows.push(this._renderRow("Combustibil luna curentă", this._formatMoney(monthFuelCost), "", "", ""));
-    }
-    if (yearFuelCost > 0) {
-      rows.push(this._renderRow("Combustibil anul curent", this._formatMoney(yearFuelCost), "", "", ""));
-    }
-    if (serviceYearCost > 0) {
-      rows.push(this._renderRow("Service anul curent", this._formatMoney(serviceYearCost), "", "", ""));
-    }
-    if (Number.isFinite(averageConsumption) && averageConsumption > 0) {
-      rows.push(this._renderRow("Consum mediu", `${this._formatNumber(averageConsumption, 2)} L/100 km`, "", "", ""));
-    }
-    if (Number.isFinite(lastConsumption) && lastConsumption > 0) {
-      rows.push(this._renderRow("Ultimul consum calculat", `${this._formatNumber(lastConsumption, 2)} L/100 km`, "", "", ""));
-    }
-
-    if (!rows.length) return "";
-    return `<div class="cmr-section"><div class="cmr-section-title">Statistici utilizare</div>${rows.join("")}</div>`;
-  }
-
-  _renderMileageChart(vehicle) {
-    const attrs = this._vehicleStatusAttributes(vehicle);
-    const chartData = attrs.vehicle_chart_data || {};
-    const rawPoints = Array.isArray(chartData.mileage) ? chartData.mileage : [];
-    const points = rawPoints
-      .map((point) => ({
-        date: point?.date || "",
-        km: this._toNumber(point?.km),
-        source: point?.source || "",
-      }))
-      .filter((point) => point.date && Number.isFinite(point.km) && point.km > 0)
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.km - b.km);
-
-    const uniquePoints = [];
-    for (const point of points) {
-      const previous = uniquePoints[uniquePoints.length - 1];
-      if (previous && previous.date === point.date && previous.km === point.km) continue;
-      uniquePoints.push(point);
-    }
-
-    if (uniquePoints.length < 2) return "";
-
-    const plotWidth = 260;
-    const plotHeight = 94;
-    const values = uniquePoints.map((point) => point.km);
-    const minKm = Math.min(...values);
-    const maxKm = Math.max(...values);
-    const rangeKm = maxKm - minKm || 1;
-    const toTimestamp = (dateValue) => {
-      const timestamp = Date.parse(`${dateValue}T00:00:00`);
-      return Number.isFinite(timestamp) ? timestamp : null;
-    };
-    const timestamps = uniquePoints.map((point) => toTimestamp(point.date));
-    const validTimestamps = timestamps.filter((timestamp) => Number.isFinite(timestamp));
-    const minTimestamp = validTimestamps.length ? Math.min(...validTimestamps) : null;
-    const maxTimestamp = validTimestamps.length ? Math.max(...validTimestamps) : null;
-    const timeRange = Number.isFinite(minTimestamp) && Number.isFinite(maxTimestamp) ? (maxTimestamp - minTimestamp || 1) : null;
-    const xForPoint = (point, index) => {
-      const timestamp = toTimestamp(point.date);
-      if (Number.isFinite(timestamp) && timeRange) {
-        return ((timestamp - minTimestamp) / timeRange) * plotWidth;
-      }
-      return uniquePoints.length === 1 ? 0 : (index / (uniquePoints.length - 1)) * plotWidth;
-    };
-    const yForKm = (km) => ((maxKm - km) / rangeKm) * plotHeight;
-    const coordinatePairs = uniquePoints.map((point, index) => {
-      const x = xForPoint(point, index);
-      const y = yForKm(point.km);
-      return { x: x.toFixed(1), y: y.toFixed(1) };
-    });
-    const coordinates = coordinatePairs.map((point) => `${point.x},${point.y}`).join(" ");
-    const areaCoordinates = coordinatePairs.length > 1
-      ? `0,${plotHeight} ${coordinates} ${plotWidth},${plotHeight}`
-      : "";
-    const yTicks = [maxKm, minKm + rangeKm / 2, minKm].map((value) => ({
-      value,
-      y: yForKm(value),
-      label: `${this._formatNumber(value, 0)} km`,
-    }));
-    const dateTickIndexes = Array.from(new Set([
-      0,
-      Math.floor((uniquePoints.length - 1) / 2),
-      uniquePoints.length - 1,
-    ])).filter((index) => index >= 0 && index < uniquePoints.length);
-    const xTicks = dateTickIndexes.map((index) => ({
-      label: this._formatDateRo(uniquePoints[index].date),
-      className: index === 0 ? "is-left" : index === uniquePoints.length - 1 ? "is-right" : "is-center",
-    }));
-    const first = uniquePoints[0];
-    const last = uniquePoints[uniquePoints.length - 1];
-    const distance = last.km - first.km;
-    const firstLabel = `${this._formatDateRo(first.date)} · ${this._formatNumber(first.km, 0)} km`;
-    const lastLabel = `${this._formatDateRo(last.date)} · ${this._formatNumber(last.km, 0)} km`;
-    const distanceLabel = `${distance >= 0 ? "+" : ""}${this._formatNumber(distance, 0)} km`;
-    const mileageTooltips = uniquePoints.map((point, index) => {
-      const pair = coordinatePairs[index];
-      const left = (Number(pair.x) / plotWidth) * 100;
-      const top = (Number(pair.y) / plotHeight) * 100;
-      const sourceLabel = point.source ? `Sursă: ${point.source === "current_vehicle_km" ? "kilometraj curent" : point.source === "fuel_receipt" ? "bon combustibil" : point.source === "service_history" ? "istoric service" : point.source}` : "";
-      const tooltip = [
-        this._formatDateRo(point.date),
-        `${this._formatNumber(point.km, 0)} km`,
-        sourceLabel,
-      ].filter(Boolean).join("\n");
-      const edgeClass = left <= 12 ? " is-left-edge" : left >= 88 ? " is-right-edge" : "";
-      return `<button class="cmr-chart-hotspot${edgeClass}" type="button" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;" aria-label="${this._escape(tooltip)}"><span class="cmr-chart-tooltip">${this._escape(tooltip).replace(/\n/g, "<br>")}</span></button>`;
-    }).join("");
-
-    return `
-      <div class="cmr-section cmr-chart-section">
-        <div class="cmr-section-title">Evoluție kilometraj</div>
-        <div class="cmr-chart-card">
-          <div class="cmr-axis-chart">
-            <div class="cmr-y-axis-labels" aria-hidden="true">
-              ${yTicks.map((tick) => `<span>${this._escape(tick.label)}</span>`).join("")}
-            </div>
-            <div class="cmr-plot-area">
-              <svg class="cmr-chart-svg cmr-mileage-chart-svg" viewBox="-4 -4 ${plotWidth + 8} ${plotHeight + 8}" role="img" aria-label="Evoluție kilometraj">
-                <defs>
-                  <linearGradient id="cmr-mileage-gradient-${this._escape(vehicle.id)}" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="currentColor" stop-opacity="0.22"></stop>
-                    <stop offset="100%" stop-color="currentColor" stop-opacity="0.02"></stop>
-                  </linearGradient>
-                </defs>
-                ${yTicks.map((tick) => `
-                  <line class="cmr-chart-grid" x1="0" y1="${tick.y.toFixed(1)}" x2="${plotWidth}" y2="${tick.y.toFixed(1)}"></line>
-                `).join("")}
-                <line class="cmr-chart-axis" x1="0" y1="0" x2="0" y2="${plotHeight}"></line>
-                <line class="cmr-chart-axis" x1="0" y1="${plotHeight}" x2="${plotWidth}" y2="${plotHeight}"></line>
-                ${areaCoordinates ? `<polygon class="cmr-chart-area" points="${areaCoordinates}" fill="url(#cmr-mileage-gradient-${this._escape(vehicle.id)})"></polygon>` : ""}
-                <polyline class="cmr-chart-line" points="${coordinates}"></polyline>
-                ${uniquePoints.map((point, index) => {
-                  const pair = coordinatePairs[index];
-                  const isLast = index === uniquePoints.length - 1;
-                  return `<g class="cmr-chart-point-group ${isLast ? "is-last" : ""}"><circle class="cmr-chart-point-halo" cx="${pair.x}" cy="${pair.y}" r="5.5"></circle><circle class="cmr-chart-point" cx="${pair.x}" cy="${pair.y}" r="3"></circle><circle class="cmr-chart-point-core" cx="${pair.x}" cy="${pair.y}" r="1.4"></circle></g>`;
-                }).join("")}
-              </svg>
-              <div class="cmr-chart-tooltips">${mileageTooltips}</div>
-              <div class="cmr-x-axis-labels" aria-hidden="true">
-                ${xTicks.map((tick) => `<span class="${tick.className}">${this._escape(tick.label)}</span>`).join("")}
-              </div>
-            </div>
-          </div>
-          <div class="cmr-chart-summary">
-            <div><span>De la</span><strong>${this._escape(firstLabel)}</strong></div>
-            <div><span>Până la</span><strong>${this._escape(lastLabel)}</strong></div>
-            <div><span>Diferență</span><strong>${this._escape(distanceLabel)}</strong></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-
-  _renderConsumptionChart(vehicle) {
-    const attrs = this._vehicleStatusAttributes(vehicle);
-    const chartData = attrs.vehicle_chart_data || {};
-    const rawPoints = Array.isArray(chartData.consumption) ? chartData.consumption : [];
-    const points = rawPoints
-      .map((point) => ({
-        date: point?.date || "",
-        value: this._toNumber(point?.value),
-        distanceKm: this._toNumber(point?.distance_km),
-        liters: this._toNumber(point?.liters),
-        cost: this._toNumber(point?.cost),
-        costPerKm: this._toNumber(point?.cost_per_km),
-      }))
-      .filter((point) => point.date && Number.isFinite(point.value) && point.value > 0)
-      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.value - b.value);
-
-    const uniquePoints = [];
-    for (const point of points) {
-      const previous = uniquePoints[uniquePoints.length - 1];
-      if (previous && previous.date === point.date && previous.value === point.value) continue;
-      uniquePoints.push(point);
-    }
-
-    if (!uniquePoints.length) return "";
-
-    const plotWidth = 260;
-    const plotHeight = 94;
-    const values = uniquePoints.map((point) => point.value);
-    const rawMin = Math.min(...values);
-    const rawMax = Math.max(...values);
-    const padding = rawMin === rawMax ? Math.max(rawMax * 0.12, 1) : Math.max((rawMax - rawMin) * 0.15, 0.3);
-    const minValue = Math.max(0, rawMin - padding);
-    const maxValue = rawMax + padding;
-    const rangeValue = maxValue - minValue || 1;
-    const toTimestamp = (dateValue) => {
-      const timestamp = Date.parse(`${dateValue}T00:00:00`);
-      return Number.isFinite(timestamp) ? timestamp : null;
-    };
-    const timestamps = uniquePoints.map((point) => toTimestamp(point.date));
-    const validTimestamps = timestamps.filter((timestamp) => Number.isFinite(timestamp));
-    const minTimestamp = validTimestamps.length ? Math.min(...validTimestamps) : null;
-    const maxTimestamp = validTimestamps.length ? Math.max(...validTimestamps) : null;
-    const timeRange = Number.isFinite(minTimestamp) && Number.isFinite(maxTimestamp) ? (maxTimestamp - minTimestamp || 1) : null;
-    const xForPoint = (point, index) => {
-      const timestamp = toTimestamp(point.date);
-      if (Number.isFinite(timestamp) && timeRange && uniquePoints.length > 1) {
-        return ((timestamp - minTimestamp) / timeRange) * plotWidth;
-      }
-      if (uniquePoints.length === 1) return plotWidth / 2;
-      return (index / (uniquePoints.length - 1)) * plotWidth;
-    };
-    const yForValue = (value) => ((maxValue - value) / rangeValue) * plotHeight;
-    const coordinatePairs = uniquePoints.map((point, index) => {
-      const x = xForPoint(point, index);
-      const y = yForValue(point.value);
-      return { x: x.toFixed(1), y: y.toFixed(1) };
-    });
-    const coordinates = coordinatePairs.map((point) => `${point.x},${point.y}`).join(" ");
-    const areaCoordinates = coordinatePairs.length > 1
-      ? `0,${plotHeight} ${coordinates} ${plotWidth},${plotHeight}`
-      : "";
-    const yTicks = [maxValue, minValue + rangeValue / 2, minValue].map((value) => ({
-      value,
-      y: yForValue(value),
-      label: `${this._formatNumber(value, 1)} L`,
-    }));
-    const dateTickIndexes = uniquePoints.length === 1
-      ? [0]
-      : Array.from(new Set([0, Math.floor((uniquePoints.length - 1) / 2), uniquePoints.length - 1]))
-        .filter((index) => index >= 0 && index < uniquePoints.length);
-    const xTicks = dateTickIndexes.map((index) => ({
-      label: this._formatDateRo(uniquePoints[index].date),
-      className: uniquePoints.length === 1 ? "is-center" : index === 0 ? "is-left" : index === uniquePoints.length - 1 ? "is-right" : "is-center",
-    }));
-    const first = uniquePoints[0];
-    const last = uniquePoints[uniquePoints.length - 1];
-    const average = uniquePoints.reduce((total, point) => total + point.value, 0) / uniquePoints.length;
-    const lastLabel = `${this._formatDateRo(last.date)} · ${this._formatNumber(last.value, 2)} L/100 km`;
-    const averageLabel = `${this._formatNumber(average, 2)} L/100 km`;
-    const distanceLabel = Number.isFinite(last.distanceKm) && last.distanceKm > 0 ? `${this._formatNumber(last.distanceKm, 0)} km` : "—";
-    const chartArea = areaCoordinates
-      ? `<polygon class="cmr-chart-area" points="${areaCoordinates}" fill="url(#cmr-consumption-gradient-${this._escape(vehicle.id)})"></polygon>`
-      : "";
-    const chartLine = uniquePoints.length > 1
-      ? `<polyline class="cmr-chart-line" points="${coordinates}"></polyline>`
-      : "";
-    const consumptionTooltips = uniquePoints.map((point, index) => {
-      const pair = coordinatePairs[index];
-      const left = (Number(pair.x) / plotWidth) * 100;
-      const top = (Number(pair.y) / plotHeight) * 100;
-      const tooltipParts = [
-        this._formatDateRo(point.date),
-        `${this._formatNumber(point.value, 2)} L/100 km`,
-        Number.isFinite(point.distanceKm) && point.distanceKm > 0 ? `Interval: ${this._formatNumber(point.distanceKm, 0)} km` : "",
-        Number.isFinite(point.liters) && point.liters > 0 ? `Cantitate: ${this._formatNumber(point.liters, 2)} L` : "",
-        Number.isFinite(point.cost) && point.cost > 0 ? `Cost: ${this._formatMoney(point.cost)}` : "",
-        Number.isFinite(point.costPerKm) && point.costPerKm > 0 ? `Cost/km: ${this._formatNumber(point.costPerKm, 3)} RON` : "",
-      ].filter(Boolean);
-      const tooltip = tooltipParts.join("\n");
-      const edgeClass = left <= 12 ? " is-left-edge" : left >= 88 ? " is-right-edge" : "";
-      return `<button class="cmr-chart-hotspot${edgeClass}" type="button" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;" aria-label="${this._escape(tooltip)}"><span class="cmr-chart-tooltip">${this._escape(tooltip).replace(/\n/g, "<br>")}</span></button>`;
-    }).join("");
-
-    return `
-      <div class="cmr-section cmr-chart-section">
-        <div class="cmr-section-title">Evoluție consum</div>
-        <div class="cmr-chart-card">
-          <div class="cmr-axis-chart">
-            <div class="cmr-y-axis-labels" aria-hidden="true">
-              ${yTicks.map((tick) => `<span>${this._escape(tick.label)}</span>`).join("")}
-            </div>
-            <div class="cmr-plot-area">
-              <svg class="cmr-chart-svg cmr-consumption-chart-svg" viewBox="-4 -4 ${plotWidth + 8} ${plotHeight + 8}" role="img" aria-label="Evoluție consum">
-                <defs>
-                  <linearGradient id="cmr-consumption-gradient-${this._escape(vehicle.id)}" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="currentColor" stop-opacity="0.22"></stop>
-                    <stop offset="100%" stop-color="currentColor" stop-opacity="0.02"></stop>
-                  </linearGradient>
-                </defs>
-                ${yTicks.map((tick) => `
-                  <line class="cmr-chart-grid" x1="0" y1="${tick.y.toFixed(1)}" x2="${plotWidth}" y2="${tick.y.toFixed(1)}"></line>
-                `).join("")}
-                <line class="cmr-chart-axis" x1="0" y1="0" x2="0" y2="${plotHeight}"></line>
-                <line class="cmr-chart-axis" x1="0" y1="${plotHeight}" x2="${plotWidth}" y2="${plotHeight}"></line>
-                ${chartArea}
-                ${chartLine}
-                ${uniquePoints.map((point, index) => {
-                  const pair = coordinatePairs[index];
-                  const isLast = index === uniquePoints.length - 1;
-                  return `<g class="cmr-chart-point-group ${isLast ? "is-last" : ""}"><circle class="cmr-chart-point-halo" cx="${pair.x}" cy="${pair.y}" r="5.5"></circle><circle class="cmr-chart-point" cx="${pair.x}" cy="${pair.y}" r="3"></circle><circle class="cmr-chart-point-core" cx="${pair.x}" cy="${pair.y}" r="1.4"></circle></g>`;
-                }).join("")}
-              </svg>
-              <div class="cmr-chart-tooltips">${consumptionTooltips}</div>
-              <div class="cmr-x-axis-labels" aria-hidden="true">
-                ${xTicks.map((tick) => `<span class="${tick.className}">${this._escape(tick.label)}</span>`).join("")}
-              </div>
-            </div>
-          </div>
-          <div class="cmr-chart-summary">
-            <div><span>Ultimul</span><strong>${this._escape(lastLabel)}</strong></div>
-            <div><span>Medie</span><strong>${this._escape(averageLabel)}</strong></div>
-            <div><span>Interval</span><strong>${this._escape(distanceLabel)}</strong></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  _renderFuelMonthlyCostChart(vehicle) {
-    const attrs = this._vehicleStatusAttributes(vehicle);
-    const chartData = attrs.vehicle_chart_data || {};
-    const rawPoints = Array.isArray(chartData.fuel_monthly_costs) ? chartData.fuel_monthly_costs : [];
-    const points = rawPoints
-      .map((point) => ({
-        month: point?.month || "",
-        cost: this._toNumber(point?.cost),
-        quantity: this._toNumber(point?.quantity),
-      }))
-      .filter((point) => /^\d{4}-\d{2}$/.test(String(point.month)) && Number.isFinite(point.cost) && point.cost > 0)
-      .sort((a, b) => String(a.month).localeCompare(String(b.month)));
-
-    if (!points.length) return "";
-
-    const plotWidth = 260;
-    const plotHeight = 94;
-    const maxCost = Math.max(...points.map((point) => point.cost));
-    const yMax = Math.max(maxCost * 1.18, 1);
-    const yForCost = (cost) => plotHeight - (cost / yMax) * plotHeight;
-    const centerForIndex = (index) => {
-      if (points.length === 1) return plotWidth / 2;
-      return (index / (points.length - 1)) * plotWidth;
-    };
-    const maxBarWidth = points.length === 1 ? 58 : Math.max(18, Math.min(42, plotWidth / Math.max(points.length * 1.8, 1)));
-    const bars = points.map((point, index) => {
-      const centerX = centerForIndex(index);
-      const barHeight = Math.max(4, plotHeight - yForCost(point.cost));
-      const x = Math.max(0, Math.min(plotWidth - maxBarWidth, centerX - maxBarWidth / 2));
-      const y = plotHeight - barHeight;
-      return { point, x, y, width: maxBarWidth, height: barHeight, centerX, centerY: y };
-    });
-    const yTicks = [yMax, yMax / 2, 0].map((value) => ({
-      value,
-      y: yForCost(value),
-      label: this._formatMoney(value).replace(",00", ""),
-    }));
-    const tickIndexes = points.length === 1
-      ? [0]
-      : Array.from(new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]))
-        .filter((index) => index >= 0 && index < points.length);
-    const xTicks = tickIndexes.map((index) => ({
-      label: this._formatMonthRo(points[index].month),
-      className: points.length === 1 ? "is-center" : index === 0 ? "is-left" : index === points.length - 1 ? "is-right" : "is-center",
-    }));
-    const totalCost = points.reduce((total, point) => total + point.cost, 0);
-    const averageCost = totalCost / points.length;
-    const last = points[points.length - 1];
-    const lastLabel = `${this._formatMonthRo(last.month)} · ${this._formatMoney(last.cost)}`;
-    const totalLabel = this._formatMoney(totalCost);
-    const averageLabel = this._formatMoney(averageCost);
-    const tooltips = bars.map((bar) => {
-      const left = (bar.centerX / plotWidth) * 100;
-      const top = (bar.centerY / plotHeight) * 100;
-      const tooltipParts = [
-        this._formatMonthRo(bar.point.month),
-        `Cost: ${this._formatMoney(bar.point.cost)}`,
-        Number.isFinite(bar.point.quantity) && bar.point.quantity > 0 ? `Cantitate: ${this._formatNumber(bar.point.quantity, 2)} L` : "",
-      ].filter(Boolean);
-      const tooltip = tooltipParts.join("\n");
-      const edgeClass = left <= 12 ? " is-left-edge" : left >= 88 ? " is-right-edge" : "";
-      return `<button class="cmr-chart-hotspot${edgeClass}" type="button" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;" aria-label="${this._escape(tooltip)}"><span class="cmr-chart-tooltip">${this._escape(tooltip).replace(/\n/g, "<br>")}</span></button>`;
-    }).join("");
-
-    return `
-      <div class="cmr-section cmr-chart-section">
-        <div class="cmr-section-title">Cost combustibil lunar</div>
-        <div class="cmr-chart-card">
-          <div class="cmr-axis-chart">
-            <div class="cmr-y-axis-labels" aria-hidden="true">
-              ${yTicks.map((tick) => `<span>${this._escape(tick.label)}</span>`).join("")}
-            </div>
-            <div class="cmr-plot-area">
-              <svg class="cmr-chart-svg cmr-fuel-cost-chart-svg" viewBox="-4 -4 ${plotWidth + 8} ${plotHeight + 8}" role="img" aria-label="Cost combustibil lunar">
-                <defs>
-                  <linearGradient id="cmr-fuel-cost-gradient-${this._escape(vehicle.id)}" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="currentColor" stop-opacity="0.52"></stop>
-                    <stop offset="100%" stop-color="currentColor" stop-opacity="0.22"></stop>
-                  </linearGradient>
-                </defs>
-                ${yTicks.map((tick) => `
-                  <line class="cmr-chart-grid" x1="0" y1="${tick.y.toFixed(1)}" x2="${plotWidth}" y2="${tick.y.toFixed(1)}"></line>
-                `).join("")}
-                <line class="cmr-chart-axis" x1="0" y1="0" x2="0" y2="${plotHeight}"></line>
-                <line class="cmr-chart-axis" x1="0" y1="${plotHeight}" x2="${plotWidth}" y2="${plotHeight}"></line>
-                ${bars.map((bar, index) => `
-                  <rect class="cmr-chart-bar ${index === bars.length - 1 ? "is-last" : ""}" x="${bar.x.toFixed(1)}" y="${bar.y.toFixed(1)}" width="${bar.width.toFixed(1)}" height="${bar.height.toFixed(1)}" rx="5" ry="5" fill="url(#cmr-fuel-cost-gradient-${this._escape(vehicle.id)})"></rect>
-                  <circle class="cmr-chart-point-core" cx="${bar.centerX.toFixed(1)}" cy="${bar.y.toFixed(1)}" r="1.8"></circle>
-                `).join("")}
-              </svg>
-              <div class="cmr-chart-tooltips">${tooltips}</div>
-              <div class="cmr-x-axis-labels" aria-hidden="true">
-                ${xTicks.map((tick) => `<span class="${tick.className}">${this._escape(tick.label)}</span>`).join("")}
-              </div>
-            </div>
-          </div>
-          <div class="cmr-chart-summary">
-            <div><span>Ultima lună</span><strong>${this._escape(lastLabel)}</strong></div>
-            <div><span>Total</span><strong>${this._escape(totalLabel)}</strong></div>
-            <div><span>Medie / lună</span><strong>${this._escape(averageLabel)}</strong></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  _costCategoryPoints(vehicle) {
-    const attrs = this._vehicleStatusAttributes(vehicle);
-    const stats = attrs.vehicle_statistics || {};
-    const fuelStats = stats.fuel || {};
-    const points = [
-      {
-        key: "fuel",
-        label: "Combustibil",
-        value: this._toNumber(fuelStats.current_year_cost),
-      },
-      {
-        key: "service",
-        label: "Service / intervenții",
-        value: this._toNumber(stats.service_history_current_year_cost),
-      },
-      {
-        key: "tire",
-        label: "Anvelope",
-        value: this._toNumber(attrs.tire_costs_current_year),
-      },
-      {
-        key: "equipment",
-        label: "Echipamente",
-        value: this._toNumber(attrs.equipment_costs_current_year),
-      },
-      {
-        key: "battery",
-        label: "Baterie",
-        value: this._toNumber(attrs.battery_costs_current_year),
-      },
-    ];
-
-    return points
-      .filter((point) => Number.isFinite(point.value) && point.value > 0)
-      .sort((a, b) => b.value - a.value);
-  }
-
-  _renderCostCategoryChart(vehicle) {
-    const points = this._costCategoryPoints(vehicle);
-    if (!points.length) return "";
-
-    const maxValue = Math.max(...points.map((point) => point.value), 1);
-    const total = points.reduce((sum, point) => sum + point.value, 0);
-    const top = points[0];
-    const year = new Date().getFullYear();
-
-    return `
-      <div class="cmr-section cmr-chart-section cmr-category-chart-section">
-        <div class="cmr-section-title">Costuri pe categorii</div>
-        <div class="cmr-chart-card cmr-category-chart-card">
-          <div class="cmr-category-bars" role="img" aria-label="Costuri pe categorii în anul curent">
-            ${points.map((point) => {
-              const percent = Math.max(5, Math.min(100, (point.value / maxValue) * 100));
-              const share = total > 0 ? (point.value / total) * 100 : 0;
-              const tooltip = `${point.label}\n${this._formatMoney(point.value)}\n${this._formatNumber(share, 1)}% din total`;
-              return `
-                <div class="cmr-category-bar-row">
-                  <div class="cmr-category-bar-head">
-                    <span>${this._escape(point.label)}</span>
-                    <strong>${this._formatMoney(point.value)}</strong>
-                  </div>
-                  <button class="cmr-category-bar-track" type="button" aria-label="${this._escape(tooltip)}">
-                    <span class="cmr-category-bar-fill" style="width:${percent.toFixed(1)}%"></span>
-                    <span class="cmr-chart-tooltip cmr-category-tooltip">${this._escape(tooltip).replace(/\n/g, "<br>")}</span>
-                  </button>
-                </div>
-              `;
-            }).join("")}
-          </div>
-          <div class="cmr-chart-summary">
-            <div><span>An</span><strong>${year}</strong></div>
-            <div><span>Total</span><strong>${this._formatMoney(total)}</strong></div>
-            <div><span>Cea mai mare</span><strong>${this._escape(top.label)}</strong></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-
-  _formatMonthRo(value) {
-    const match = /^(\d{4})-(\d{2})$/.exec(String(value || ""));
-    if (!match) return value || "";
-    return `${match[2]}/${match[1]}`;
-  }
-
 
   _renderConsumables(vehicle) {
     const rows = vehicle.entities
@@ -3359,12 +2577,60 @@ class CarManagerRomaniaCard extends HTMLElement {
       try {
         await this._hass.callService("homeassistant", "update_entity", { entity_id: entityIds });
       } catch (_error) {
-        // Senzorii primesc oricum actualizări prin dispatcher; această actualizare este doar o rezervă vizuală.
+        // Senzorii primesc oricum update prin dispatcher; acest update este doar un fallback vizual.
       }
     }
   }
 
+  _captureScrollablePositions() {
+    if (!this._scrollPositions) {
+      this._scrollPositions = {};
+    }
+
+    this.querySelectorAll("[data-scroll-preserve][data-scroll-key]").forEach((element) => {
+      const key = element.dataset.scrollKey;
+      if (!key) return;
+      this._scrollPositions[key] = {
+        top: element.scrollTop || 0,
+        left: element.scrollLeft || 0,
+      };
+    });
+  }
+
+  _restoreScrollablePositions() {
+    if (!this._scrollPositions) return;
+
+    window.requestAnimationFrame(() => {
+      this.querySelectorAll("[data-scroll-preserve][data-scroll-key]").forEach((element) => {
+        const key = element.dataset.scrollKey;
+        const position = key ? this._scrollPositions[key] : null;
+        if (!position) return;
+        element.scrollTop = position.top || 0;
+        element.scrollLeft = position.left || 0;
+      });
+    });
+  }
+
+  _resetScrollablePosition(prefix) {
+    if (!this._scrollPositions) return;
+
+    Object.keys(this._scrollPositions).forEach((key) => {
+      if (!prefix || key.startsWith(prefix)) {
+        delete this._scrollPositions[key];
+      }
+    });
+  }
+
   _attachEvents() {
+    this.querySelectorAll("[data-scroll-preserve][data-scroll-key]").forEach((element) => {
+      element.addEventListener("scroll", () => {
+        const key = element.dataset.scrollKey;
+        if (!key) return;
+        this._scrollPositions = this._scrollPositions || {};
+        this._scrollPositions[key] = { top: element.scrollTop || 0, left: element.scrollLeft || 0 };
+      }, { passive: true });
+    });
+
     this.querySelectorAll(".cmr-brand-icon").forEach((image) => {
       image.addEventListener("error", () => image.classList.add("is-hidden"), { once: true });
     });
@@ -3384,35 +2650,6 @@ class CarManagerRomaniaCard extends HTMLElement {
       this._backupOpen = !this._backupOpen;
       this._backupMessage = "";
       this.render();
-    });
-
-    this.querySelector('[data-action="toggle-notifications"]')?.addEventListener("click", () => {
-      this._notificationsOpen = !this._notificationsOpen;
-      this._notificationOptionsDraft = null;
-      this._notificationMessage = "";
-      this.render();
-    });
-
-    const notificationForm = this.querySelector('form[data-form="notification-options"]');
-    notificationForm?.addEventListener("change", () => {
-      const draft = {};
-      this._notificationOptionDefinitions().forEach(([key]) => {
-        draft[key] = Boolean(notificationForm.querySelector(`input[name="${key}"]`)?.checked);
-      });
-      this._notificationOptionsDraft = draft;
-    });
-    notificationForm?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const payload = {};
-      this._notificationOptionDefinitions().forEach(([key]) => {
-        payload[key] = Boolean(notificationForm.querySelector(`input[name="${key}"]`)?.checked);
-      });
-      await this._saveNotificationOptions(payload);
-    });
-    this.querySelector('[data-action="notifications-reset"]')?.addEventListener("click", async () => {
-      const payload = Object.fromEntries(this._notificationOptionDefinitions().map(([key]) => [key, true]));
-      this._notificationOptionsDraft = payload;
-      await this._saveNotificationOptions(payload);
     });
 
     const licenseForm = this.querySelector('form[data-form="license"]');
@@ -3443,7 +2680,7 @@ class CarManagerRomaniaCard extends HTMLElement {
     this.querySelectorAll('[data-action="set-tab"]').forEach((button) => {
       button.addEventListener("click", () => {
         const tab = button.dataset.tab || "vehicles";
-        this._activeTab = ["costs", "statistics", "fuel", "tires", "equipment", "battery", "license"].includes(tab) ? tab : "vehicles";
+        this._activeTab = ["costs", "fuel", "tires", "equipment", "battery", "license"].includes(tab) ? tab : "vehicles";
         this._tabHoverLabel = "";
         this.render();
       });
@@ -3463,51 +2700,26 @@ class CarManagerRomaniaCard extends HTMLElement {
 
     this.querySelector('[data-action="fuel-filter"]')?.addEventListener("change", (event) => {
       this._fuelVehicleFilter = event.currentTarget.value || "all";
-      this.render();
-    });
-
-    this.querySelector('[data-action="statistics-filter"]')?.addEventListener("change", (event) => {
-      this._statisticsVehicleFilter = event.currentTarget.value || "all";
-      this.render();
-    });
-
-    this.querySelector('[data-action="statistics-sections-menu"]')?.addEventListener("toggle", (event) => {
-      this._statisticsSectionsOpen = event.currentTarget.open;
-    });
-
-    this.querySelectorAll('[data-action="statistics-section-toggle"]').forEach((input) => {
-      input.addEventListener("change", () => {
-        const selected = new Set();
-        this.querySelectorAll('[data-action="statistics-section-toggle"]:checked').forEach((checkedInput) => {
-          if (checkedInput.value) selected.add(checkedInput.value);
-        });
-        this._statisticsVisibleSections = selected;
-        this._statisticsSectionsOpen = true;
-        this._saveStatisticsVisibleSections();
-        this.render();
-      });
-    });
-
-    this.querySelector('[data-action="statistics-sections-reset"]')?.addEventListener("click", () => {
-      this._statisticsVisibleSections = new Set(this._statisticsSectionDefinitions().map(([key]) => key));
-      this._statisticsSectionsOpen = true;
-      this._saveStatisticsVisibleSections();
+      this._resetScrollablePosition("fuel-history-");
       this.render();
     });
 
 
     this.querySelector('[data-action="fuel-period-filter"]')?.addEventListener("change", (event) => {
       this._fuelPeriodFilter = event.currentTarget.value || "current_year";
+      this._resetScrollablePosition("fuel-history-");
       this.render();
     });
 
     this.querySelector('[data-action="fuel-period-from"]')?.addEventListener("change", (event) => {
       this._fuelCustomFrom = event.currentTarget.value || "";
+      this._resetScrollablePosition("fuel-history-");
       this.render();
     });
 
     this.querySelector('[data-action="fuel-period-to"]')?.addEventListener("change", (event) => {
       this._fuelCustomTo = event.currentTarget.value || "";
+      this._resetScrollablePosition("fuel-history-");
       this.render();
     });
 
@@ -4925,7 +4137,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       : summaries.filter((summary) => summary.key === this._fuelVehicleFilter);
     const payload = {
       type: "car_manager_romania_fuel_history",
-      version: "1.0.70b3",
+      version: "1.0.16",
       generated_at: new Date().toISOString(),
       filter: this._fuelVehicleFilter,
       vehicles: filtered.map((summary) => ({
@@ -5857,7 +5069,7 @@ class CarManagerRomaniaCard extends HTMLElement {
       .cmr-brand-icon.is-hidden { display: none; }
       .cmr-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
       .cmr-tabs-wrap { margin-top: 14px; padding: 6px 8px 8px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 88%, var(--primary-color) 12%); border: 1px solid var(--divider-color); }
-      .cmr-tabs { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px; align-items: center; }
+      .cmr-tabs { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; align-items: center; }
       .cmr-tab { min-width: 0; min-height: 32px; border: 0; border-radius: 999px; padding: 6px 2px; color: var(--secondary-text-color); background: transparent; cursor: pointer; line-height: 1; }
       .cmr-tab ha-icon { width: 18px; height: 18px; display: block; margin: 0 auto; transition: transform .14s ease, color .14s ease; }
       .cmr-tab:hover ha-icon, .cmr-tab:focus-visible ha-icon { transform: translateY(-1px) scale(1.08); }
@@ -5979,87 +5191,11 @@ class CarManagerRomaniaCard extends HTMLElement {
       .is-neutral { --cmr-accent: var(--secondary-text-color); }
       .cmr-tile.is-good, .cmr-tile.is-warn, .cmr-tile.is-bad { border-left: 5px solid var(--cmr-accent); }
       .cmr-row.is-good .cmr-row-value, .cmr-row.is-warn .cmr-row-value, .cmr-row.is-bad .cmr-row-value { color: var(--cmr-accent); }
-      .cmr-chart-card { padding: 8px 0 0; }
-      .cmr-axis-chart { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; align-items: stretch; }
-      .cmr-y-axis-labels { display: flex; flex-direction: column; justify-content: space-between; height: 106px; padding: 0 0 20px; color: var(--secondary-text-color); font-size: 10px; font-weight: 800; line-height: 1; text-align: right; }
-      .cmr-plot-area { position: relative; min-width: 0; overflow: visible; }
-      .cmr-chart-svg { display: block; width: 100%; color: var(--primary-color); overflow: visible; }
-      .cmr-mileage-chart-svg { height: 106px; }
-      .cmr-x-axis-labels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 5px; color: var(--secondary-text-color); font-size: 10px; font-weight: 800; line-height: 1.1; }
-      .cmr-x-axis-labels span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .cmr-x-axis-labels .is-left { text-align: left; }
-      .cmr-x-axis-labels .is-center { text-align: center; }
-      .cmr-x-axis-labels .is-right { text-align: right; }
-      .cmr-chart-axis { stroke: color-mix(in srgb, var(--divider-color) 70%, transparent); stroke-width: 1; }
-      .cmr-chart-grid { stroke: color-mix(in srgb, var(--divider-color) 48%, transparent); stroke-width: 1; stroke-dasharray: 2 5; }
-      .cmr-chart-area { opacity: .9; pointer-events: none; }
-      .cmr-chart-line { fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 1px color-mix(in srgb, currentColor 22%, transparent)); }
-      .cmr-chart-point-group { color: var(--primary-color); }
-      .cmr-chart-point-halo { fill: color-mix(in srgb, currentColor 16%, var(--card-background-color)); stroke: color-mix(in srgb, currentColor 22%, transparent); stroke-width: 1; }
-      .cmr-chart-point { fill: var(--card-background-color); stroke: currentColor; stroke-width: 2.2; }
-      .cmr-chart-point-core { fill: currentColor; pointer-events: none; }
-      .cmr-chart-point-group.is-last .cmr-chart-point-halo { fill: color-mix(in srgb, currentColor 24%, var(--card-background-color)); }
-      .cmr-chart-point-group.is-last .cmr-chart-point { stroke-width: 2.6; }
-      .cmr-chart-bar { color: var(--primary-color); stroke: color-mix(in srgb, currentColor 36%, transparent); stroke-width: 1; filter: drop-shadow(0 1px 1px color-mix(in srgb, currentColor 18%, transparent)); }
-      .cmr-chart-bar.is-last { stroke-width: 1.4; }
-      .cmr-category-chart-card { padding-top: 10px; }
-      .cmr-category-bars { display: grid; gap: 10px; }
-      .cmr-category-bar-row { display: grid; gap: 5px; }
-      .cmr-category-bar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11px; font-weight: 800; }
-      .cmr-category-bar-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .cmr-category-bar-head strong { white-space: nowrap; }
-      .cmr-category-bar-track { position: relative; display: block; width: 100%; height: 16px; padding: 0; border: 1px solid color-mix(in srgb, var(--divider-color) 50%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--card-background-color) 74%, transparent); cursor: pointer; overflow: visible; }
-      .cmr-category-bar-track:focus { outline: none; }
-      .cmr-category-bar-track:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-      .cmr-category-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; min-width: 12px; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--primary-color) 42%, transparent), color-mix(in srgb, var(--primary-color) 82%, transparent)); box-shadow: 0 1px 2px color-mix(in srgb, var(--primary-color) 20%, transparent); }
-      .cmr-category-tooltip { left: 50%; bottom: calc(100% + 8px); }
-      .cmr-category-bar-track:hover .cmr-category-tooltip,
-      .cmr-category-bar-track:focus .cmr-category-tooltip,
-      .cmr-category-bar-track:active .cmr-category-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
-      .cmr-chart-tooltips { position: absolute; inset: 0 0 auto 0; height: 106px; pointer-events: none; }
-      .cmr-chart-hotspot { position: absolute; width: 42px; height: 42px; padding: 0; border: 0; border-radius: 999px; background: transparent; color: inherit; transform: translate(-50%, -50%); cursor: pointer; pointer-events: auto; touch-action: manipulation; }
-      .cmr-chart-hotspot.is-left-edge { transform: translate(0, -50%); }
-      .cmr-chart-hotspot.is-right-edge { transform: translate(-100%, -50%); }
-      .cmr-chart-hotspot:focus { outline: none; }
-      .cmr-chart-hotspot:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
-      .cmr-chart-tooltip { position: absolute; left: 50%; bottom: calc(100% + 7px); z-index: 3; min-width: max-content; max-width: 190px; padding: 7px 9px; border-radius: 10px; background: color-mix(in srgb, var(--primary-text-color) 92%, var(--card-background-color) 8%); color: var(--card-background-color); box-shadow: 0 6px 18px rgba(0, 0, 0, .22); font-size: 11px; font-weight: 800; line-height: 1.25; text-align: left; white-space: nowrap; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity .14s ease, transform .14s ease, visibility .14s ease; pointer-events: none; }
-      .cmr-chart-tooltip::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 10px; height: 10px; background: inherit; transform: translateX(-50%) rotate(45deg); }
-      .cmr-chart-hotspot.is-left-edge .cmr-chart-tooltip { left: 50%; right: auto; transform: translate(0, 4px); }
-      .cmr-chart-hotspot.is-left-edge .cmr-chart-tooltip::after { left: 10px; transform: rotate(45deg); }
-      .cmr-chart-hotspot.is-right-edge .cmr-chart-tooltip { left: auto; right: 50%; transform: translate(0, 4px); }
-      .cmr-chart-hotspot.is-right-edge .cmr-chart-tooltip::after { left: auto; right: 10px; transform: rotate(45deg); }
-      .cmr-chart-hotspot:hover .cmr-chart-tooltip,
-      .cmr-chart-hotspot:focus .cmr-chart-tooltip,
-      .cmr-chart-hotspot:active .cmr-chart-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
-      .cmr-chart-hotspot.is-left-edge:hover .cmr-chart-tooltip,
-      .cmr-chart-hotspot.is-left-edge:focus .cmr-chart-tooltip,
-      .cmr-chart-hotspot.is-left-edge:active .cmr-chart-tooltip,
-      .cmr-chart-hotspot.is-right-edge:hover .cmr-chart-tooltip,
-      .cmr-chart-hotspot.is-right-edge:focus .cmr-chart-tooltip,
-      .cmr-chart-hotspot.is-right-edge:active .cmr-chart-tooltip { transform: translate(0, 0); }
-
-      .cmr-chart-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
-      .cmr-chart-summary div { min-width: 0; padding: 7px 8px; border-radius: 10px; background: color-mix(in srgb, var(--card-background-color) 78%, transparent); }
-      .cmr-chart-summary span { display: block; color: var(--secondary-text-color); font-size: 10px; font-weight: 800; margin-bottom: 3px; }
-      .cmr-chart-summary strong { display: block; font-size: 11px; line-height: 1.25; overflow-wrap: anywhere; }
       .cmr-costs-panel { margin-top: 16px; padding: 14px; border-radius: 18px; background: color-mix(in srgb, var(--card-background-color) 86%, var(--primary-color) 14%); border: 1px solid var(--divider-color); }
       .cmr-cost-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
       .cmr-fuel-head { align-items: flex-end; }
       .cmr-fuel-head-actions { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
       .cmr-info-note { margin: 8px 0; padding: 9px 10px; border: 1px solid rgba(68, 180, 213, .32); border-radius: 12px; background: rgba(68, 180, 213, .10); color: var(--secondary-text-color); font-size: 12px; line-height: 1.35; }
-      .cmr-statistics-controls { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-      .cmr-statistics-sections { position: relative; min-width: 170px; }
-      .cmr-statistics-sections summary { list-style: none; cursor: pointer; border: 1px solid var(--divider-color); border-radius: 10px; padding: 7px 10px; background: var(--card-background-color); color: var(--primary-text-color); font-size: 11px; font-weight: 900; user-select: none; }
-      .cmr-statistics-sections summary::-webkit-details-marker { display: none; }
-      .cmr-statistics-sections summary::after { content: "▾"; float: right; margin-left: 10px; color: var(--secondary-text-color); }
-      .cmr-statistics-sections[open] summary::after { content: "▴"; }
-      .cmr-statistics-sections-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 220px; padding: 8px; border: 1px solid var(--divider-color); border-radius: 14px; background: var(--card-background-color); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); }
-      .cmr-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; color: var(--primary-text-color); font-size: 12px; font-weight: 800; }
-      .cmr-check-row input { width: 15px; height: 15px; accent-color: var(--primary-color); }
-      .cmr-notification-options { display: grid; gap: 4px; margin: 8px 0 10px; }
-      .cmr-notification-check { padding: 7px 6px; border-radius: 10px; }
-      .cmr-notification-check:hover { background: color-mix(in srgb, var(--primary-color) 8%, transparent); }
-      .cmr-statistics-reset { width: 100%; margin-top: 5px; justify-content: center; }
       .cmr-fuel-filter { display: flex; flex-direction: column; gap: 4px; min-width: 170px; font-size: 11px; color: var(--secondary-text-color); font-weight: 900; }
       .cmr-fuel-filter select { width: 100%; border: 1px solid var(--divider-color); border-radius: 10px; padding: 7px 9px; background: var(--card-background-color); color: var(--primary-text-color); font-weight: 800; }
       .cmr-period-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 2px; }
@@ -6126,9 +5262,6 @@ class CarManagerRomaniaCard extends HTMLElement {
         .cmr-add-grid, .cmr-cost-summary-grid, .cmr-license-grid { grid-template-columns: 1fr; }
         .cmr-fuel-head { flex-direction: column; }
         .cmr-fuel-head-actions { width: 100%; justify-content: flex-start; }
-        .cmr-statistics-controls { width: 100%; justify-content: stretch; }
-        .cmr-statistics-sections { width: 100%; }
-        .cmr-statistics-sections-menu { left: 0; right: auto; width: min(260px, calc(100vw - 72px)); }
         .cmr-fuel-filter { width: 100%; }
         .cmr-field { grid-template-columns: 1fr; }
         .cmr-service-grid { grid-template-columns: 1fr; }

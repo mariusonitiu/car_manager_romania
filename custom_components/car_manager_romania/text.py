@@ -1,4 +1,4 @@
-"""Modul pentru entitățile text editabile."""
+"""Text entities for Car Manager România."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ from .license import async_obtine_licenta_globala
 
 
 def _hub_device_info(entry: CarManagerConfigEntry) -> DeviceInfo:
-    """Funcție internă pentru hub dispozitiv informații."""
+    """Return integration hub device info."""
 
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
@@ -63,7 +63,7 @@ async def async_setup_entry(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Configurează componentele integrației în Home Assistant."""
+    """Set up text entities."""
 
     entities: list[TextEntity] = [CarManagerLicenseKeyText(entry)]
 
@@ -98,7 +98,7 @@ async def async_setup_entry(
 
 
 class CarManagerLicenseKeyText(RestoreEntity, TextEntity):
-    """Clasă pentru licență cheie text."""
+    """Editable license key field for Car Manager România."""
 
     _attr_has_entity_name = True
     _attr_name = "Cod licență nou"
@@ -109,7 +109,7 @@ class CarManagerLicenseKeyText(RestoreEntity, TextEntity):
     _attr_mode = "text"
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Funcție internă pentru init."""
+        """Initialize text entity."""
 
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_license_v2_key_text"
@@ -118,12 +118,12 @@ class CarManagerLicenseKeyText(RestoreEntity, TextEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Funcție pentru dispozitiv informații."""
+        """Return hub device information."""
 
         return _hub_device_info(self._entry)
 
     async def async_added_to_hass(self) -> None:
-        """Gestionează asincron operațiunea pentru added to hass."""
+        """Restore previous value or load the stored license key."""
 
         await super().async_added_to_hass()
 
@@ -139,14 +139,14 @@ class CarManagerLicenseKeyText(RestoreEntity, TextEntity):
             self._attr_native_value = "TRIAL"
 
     async def async_set_value(self, value: str) -> None:
-        """Gestionează asincron operațiunea pentru set valoare."""
+        """Set the pending license key value."""
 
         self._attr_native_value = str(value or "")[: self._attr_native_max]
         self.async_write_ha_state()
 
 
 class VehicleBaseText(TextEntity):
-    """Clasă pentru vehicul de bază text."""
+    """Base text entity for vehicle values."""
 
     _attr_has_entity_name = True
 
@@ -156,7 +156,7 @@ class VehicleBaseText(TextEntity):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize base vehicle text."""
 
         self._hass = hass
         self._entry = entry
@@ -165,7 +165,7 @@ class VehicleBaseText(TextEntity):
         self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Gestionează asincron operațiunea pentru added to hass."""
+        """Subscribe to vehicle and license data updates."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -185,19 +185,19 @@ class VehicleBaseText(TextEntity):
 
     @callback
     def _schedule_license_refresh(self) -> None:
-        """Funcție internă pentru schedule licență refresh."""
+        """Schedule a license-gate refresh."""
 
         self.hass.async_create_task(self._async_refresh_license_gate())
 
     async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
-        """Funcție internă pentru refresh licență gate."""
+        """Refresh the cached license gate used by sync entity properties."""
 
         self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
         if write_state:
             self.async_write_ha_state()
 
     def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
-        """Funcție internă pentru gestionare vehicule updated."""
+        """Refresh cached vehicle data and update the entity state."""
 
         for vehicle in vehicles:
             if vehicle.get("vehicle_id") == self._vehicle_id:
@@ -207,7 +207,7 @@ class VehicleBaseText(TextEntity):
 
     @property
     def _blocked_by_license(self) -> bool:
-        """Funcție internă pentru blocate by licență."""
+        """Return True if this vehicle may not expose or edit data."""
 
         return not vehicle_allowed_by_license(
             self._entry,
@@ -217,29 +217,34 @@ class VehicleBaseText(TextEntity):
 
     @property
     def available(self) -> bool:
-        """Funcție pentru disponibil."""
+        """Return availability."""
 
         return not self._blocked_by_license
 
     def _raise_if_blocked_by_license(self) -> None:
-        """Funcție internă pentru raise if blocate by licență."""
+        """Reject edits for vehicles locked by license."""
 
         if self._blocked_by_license:
             raise HomeAssistantError("Autovehicul dezactivat fără licență activă.")
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Funcție pentru dispozitiv informații."""
+        """Return vehicle device information."""
 
         return build_vehicle_device_info(self._vehicle)
 
     def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Funcție internă pentru get vehicule for actualizare."""
+        """Return the current runtime vehicles for safe incremental updates.
+
+        Values edited from entities are persisted in Home Assistant storage, not in
+        config_entry.options. Using entry.options here can reload stale vehicle data
+        and overwrite fields previously edited from other entities.
+        """
 
         return deepcopy(getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles))
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        """Funcție internă pentru persistare vehicule."""
+        """Persist vehicles in Home Assistant storage and refresh runtime data."""
 
         self._raise_if_blocked_by_license()
 
@@ -261,7 +266,7 @@ class VehicleBaseText(TextEntity):
 
 
 class VehicleFuelProfileText(VehicleBaseText):
-    """Clasă pentru vehicul combustibil profil text."""
+    """Editable vehicle fuel profile/motorization."""
 
     _attr_name = "Motorizare"
     _attr_icon = "mdi:gas-station"
@@ -272,19 +277,19 @@ class VehicleFuelProfileText(VehicleBaseText):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize fuel profile text entity."""
 
         super().__init__(hass, entry, vehicle)
         self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{CONF_FUEL_PROFILE}"
 
     @property
     def native_value(self) -> str | None:
-        """Funcție pentru native valoare."""
+        """Return fuel profile."""
 
         return str(self._vehicle.get(CONF_FUEL_PROFILE, "diesel") or "diesel")
 
     async def async_set_value(self, value: str) -> None:
-        """Gestionează asincron operațiunea pentru set valoare."""
+        """Set and persist fuel profile."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -297,7 +302,7 @@ class VehicleFuelProfileText(VehicleBaseText):
 
 
 class VehicleConsumableText(VehicleBaseText):
-    """Clasă pentru vehicul consumable text."""
+    """Editable vehicle consumable/specification text."""
 
     _attr_icon = "mdi:car-wrench"
 
@@ -309,7 +314,7 @@ class VehicleConsumableText(VehicleBaseText):
         consumable_key: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize consumable text entity."""
 
         super().__init__(hass, entry, vehicle)
         self._consumable_key = consumable_key
@@ -321,14 +326,14 @@ class VehicleConsumableText(VehicleBaseText):
 
     @property
     def native_value(self) -> str | None:
-        """Funcție pentru native valoare."""
+        """Return consumable value."""
 
         consumables = self._vehicle.get(CONF_CONSUMABLES, {})
         value = consumables.get(self._consumable_key) if isinstance(consumables, dict) else ""
         return str(value) if value is not None else ""
 
     async def async_set_value(self, value: str) -> None:
-        """Gestionează asincron operațiunea pentru set valoare."""
+        """Set and persist consumable value."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -341,7 +346,7 @@ class VehicleConsumableText(VehicleBaseText):
 
 
 class VehicleLegalText(VehicleBaseText):
-    """Clasă pentru vehicul legal text."""
+    """Editable legal term text field."""
 
     _attr_icon = "mdi:shield-car"
 
@@ -354,7 +359,7 @@ class VehicleLegalText(VehicleBaseText):
         field: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize legal term text entity."""
 
         super().__init__(hass, entry, vehicle)
         self._legal_type = legal_type
@@ -364,13 +369,13 @@ class VehicleLegalText(VehicleBaseText):
 
     @property
     def native_value(self) -> str | None:
-        """Funcție pentru native valoare."""
+        """Return legal term text value."""
 
         value = get_legal_value(self._vehicle, self._legal_type, self._field)
         return str(value) if value is not None else ""
 
     async def async_set_value(self, value: str) -> None:
-        """Gestionează asincron operațiunea pentru set valoare."""
+        """Set and persist legal term text value."""
 
         vehicles = self._get_vehicles_for_update()
 

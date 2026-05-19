@@ -1,4 +1,4 @@
-"""Modul pentru mentenanța mecanică a vehiculelor."""
+"""Maintenance helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -35,13 +35,13 @@ from .const import (
 
 
 def maintenance_storage_key(maintenance_type: str) -> str:
-    """Funcție pentru cheia de stocare a mentenanței."""
+    """Return storage key for a maintenance type."""
 
     return f"maintenance_{maintenance_type}"
 
 
 def _legacy_service_key(field: str) -> str | None:
-    """Funcție internă pentru cheia veche a reviziei generale."""
+    """Return legacy key for the general service maintenance type."""
 
     legacy_map = {
         MAINTENANCE_LAST_KM: CONF_LAST_SERVICE_KM,
@@ -58,7 +58,7 @@ def get_maintenance_value(
     maintenance_type: str,
     field: str,
 ) -> Any:
-    """Funcție pentru get mentenanță valoare."""
+    """Return maintenance value with compatibility for old service fields."""
 
     if maintenance_type == MAINTENANCE_TYPE_SERVICE:
         legacy_key = _legacy_service_key(field)
@@ -75,7 +75,7 @@ def set_maintenance_value(
     field: str,
     value: Any,
 ) -> None:
-    """Funcție pentru set mentenanță valoare."""
+    """Set maintenance value with compatibility for old service fields."""
 
     if maintenance_type == MAINTENANCE_TYPE_SERVICE:
         legacy_key = _legacy_service_key(field)
@@ -88,7 +88,7 @@ def set_maintenance_value(
 
 
 def parse_date(value: Any) -> date | None:
-    """Funcție pentru parse dată."""
+    """Parse date value safely."""
 
     if not value:
         return None
@@ -107,7 +107,11 @@ def calculate_km_remaining(
     last_km: int | None,
     interval_km: int | None,
 ) -> int | None:
-    """Funcție pentru calculate km rămași."""
+    """Calculează kilometrii rămași până la mentenanță.
+
+    Valoarea poate fi negativă atunci când termenul în kilometri este depășit.
+    Acest lucru este util în notificări și automatizări Home Assistant.
+    """
 
     if last_km is None or interval_km is None or interval_km <= 0:
         return None
@@ -119,7 +123,10 @@ def calculate_days_remaining(
     last_date_raw: Any,
     interval_days: int | None,
 ) -> int | None:
-    """Funcție pentru calculate zile rămași."""
+    """Calculează zilele rămase până la mentenanță.
+
+    Valoarea poate fi negativă atunci când termenul calendaristic este depășit.
+    """
 
     if interval_days is None or interval_days <= 0:
         return None
@@ -136,7 +143,7 @@ def calculate_maintenance_status(
     km_remaining: int | None,
     days_remaining: int | None,
 ) -> str:
-    """Funcție pentru calcularea statusului de mentenanță."""
+    """Calculate maintenance status."""
 
     if km_remaining is None and days_remaining is None:
         return MAINTENANCE_STATUS_UNKNOWN
@@ -155,7 +162,7 @@ def calculate_maintenance_status(
 
 
 def normalize_vehicle(vehicle: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """Funcție pentru normalizare vehicul."""
+    """Normalize a vehicle without overwriting existing user values."""
 
     normalized = deepcopy(vehicle)
     changed = False
@@ -225,7 +232,7 @@ def normalize_vehicle(vehicle: dict[str, Any]) -> tuple[dict[str, Any], bool]:
 
 
 def normalize_vehicles(vehicles: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
-    """Funcție pentru normalizare vehicule."""
+    """Normalize all vehicles."""
 
     normalized_vehicles: list[dict[str, Any]] = []
     changed = False
@@ -242,7 +249,7 @@ def maintenance_remaining_values(
     vehicle: dict[str, Any],
     maintenance_type: str,
 ) -> tuple[int | None, int | None]:
-    """Funcție pentru mentenanță rămași valori."""
+    """Return remaining kilometers and days for a maintenance type."""
 
     current_km = int(vehicle.get("km", 0) or 0)
 
@@ -266,7 +273,7 @@ def maintenance_remaining_values(
 
 
 def maintenance_status(vehicle: dict[str, Any], maintenance_type: str) -> str:
-    """Funcție pentru statusul de mentenanță."""
+    """Return calculated status for a maintenance type."""
 
     km_remaining, days_remaining = maintenance_remaining_values(vehicle, maintenance_type)
     return calculate_maintenance_status(km_remaining, days_remaining)

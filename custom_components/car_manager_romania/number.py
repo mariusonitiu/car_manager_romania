@@ -1,4 +1,4 @@
-"""Modul pentru entitățile numerice editabile."""
+"""Number entities for Car Manager România."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ async def async_setup_entry(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Configurează componentele integrației în Home Assistant."""
+    """Set up number entities."""
 
     entities: list[NumberEntity] = []
 
@@ -115,7 +115,7 @@ async def async_setup_entry(
 
 
 class VehicleBaseNumber(NumberEntity):
-    """Clasă pentru vehicul de bază număr."""
+    """Base number entity for vehicle values."""
 
     _attr_has_entity_name = True
     _attr_native_step = 1
@@ -126,7 +126,7 @@ class VehicleBaseNumber(NumberEntity):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize base vehicle number."""
 
         self._hass = hass
         self._entry = entry
@@ -135,7 +135,7 @@ class VehicleBaseNumber(NumberEntity):
         self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Gestionează asincron operațiunea pentru added to hass."""
+        """Subscribe to vehicle and license data updates."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -155,19 +155,19 @@ class VehicleBaseNumber(NumberEntity):
 
     @callback
     def _schedule_license_refresh(self) -> None:
-        """Funcție internă pentru schedule licență refresh."""
+        """Schedule a license-gate refresh."""
 
         self.hass.async_create_task(self._async_refresh_license_gate())
 
     async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
-        """Funcție internă pentru refresh licență gate."""
+        """Refresh the cached license gate used by sync entity properties."""
 
         self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
         if write_state:
             self.async_write_ha_state()
 
     def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
-        """Funcție internă pentru gestionare vehicule updated."""
+        """Refresh cached vehicle data and update the entity state."""
 
         for vehicle in vehicles:
             if vehicle.get("vehicle_id") == self._vehicle_id:
@@ -177,7 +177,7 @@ class VehicleBaseNumber(NumberEntity):
 
     @property
     def _blocked_by_license(self) -> bool:
-        """Funcție internă pentru blocate by licență."""
+        """Return True if this vehicle may not expose or edit data."""
 
         return not vehicle_allowed_by_license(
             self._entry,
@@ -187,31 +187,36 @@ class VehicleBaseNumber(NumberEntity):
 
     @property
     def available(self) -> bool:
-        """Funcție pentru disponibil."""
+        """Return availability."""
 
         return not self._blocked_by_license
 
     def _raise_if_blocked_by_license(self) -> None:
-        """Funcție internă pentru raise if blocate by licență."""
+        """Reject edits for vehicles locked by license."""
 
         if self._blocked_by_license:
             raise HomeAssistantError("Autovehicul dezactivat fără licență activă.")
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Funcție pentru dispozitiv informații."""
+        """Return vehicle device information."""
 
         return build_vehicle_device_info(
             self._vehicle,
         )
 
     def _get_vehicles_for_update(self) -> list[dict[str, Any]]:
-        """Funcție internă pentru get vehicule for actualizare."""
+        """Return the current runtime vehicles for safe incremental updates.
+
+        Values edited from entities are persisted in Home Assistant storage, not in
+        config_entry.options. Using entry.options here can reload stale vehicle data
+        and overwrite fields previously edited from other entities.
+        """
 
         return deepcopy(getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles))
 
     async def _persist_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        """Funcție internă pentru persistare vehicule."""
+        """Persist vehicles in Home Assistant storage and update runtime data."""
 
         await self._entry.runtime_data.vehicle_store.async_save_vehicles(vehicles)
 
@@ -237,7 +242,7 @@ class VehicleBaseNumber(NumberEntity):
 
 
 class VehicleKmNumber(VehicleBaseNumber):
-    """Clasă pentru vehicul km număr."""
+    """Editable current vehicle kilometers."""
 
     _attr_name = "Kilometri actuali"
     _attr_icon = "mdi:speedometer"
@@ -250,19 +255,19 @@ class VehicleKmNumber(VehicleBaseNumber):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize current km number."""
 
         super().__init__(hass, entry, vehicle)
         self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_{CONF_KM}"
 
     @property
     def native_value(self) -> int:
-        """Funcție pentru native valoare."""
+        """Return current kilometers."""
 
         return int(self._vehicle.get(CONF_KM, 0) or 0)
 
     async def async_set_native_value(self, value: float) -> None:
-        """Gestionează asincron operațiunea pentru set native valoare."""
+        """Set and persist current kilometers."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -275,7 +280,7 @@ class VehicleKmNumber(VehicleBaseNumber):
 
 
 class VehicleMaintenanceNumber(VehicleBaseNumber):
-    """Clasă pentru vehicul mentenanță număr."""
+    """Editable maintenance number."""
 
     def __init__(
         self,
@@ -288,7 +293,7 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
         min_value: int,
         max_value: int,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance number."""
 
         super().__init__(hass, entry, vehicle)
 
@@ -314,7 +319,7 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
 
     @property
     def native_value(self) -> int:
-        """Funcție pentru native valoare."""
+        """Return maintenance number value."""
 
         return int(
             get_maintenance_value(
@@ -326,7 +331,7 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Gestionează asincron operațiunea pentru set native valoare."""
+        """Set and persist maintenance number value."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -344,7 +349,7 @@ class VehicleMaintenanceNumber(VehicleBaseNumber):
 
 
 class VehicleMaintenanceCostNumber(VehicleBaseNumber):
-    """Clasă pentru vehicul mentenanță cost număr."""
+    """Editable estimated maintenance cost."""
 
     _attr_icon = "mdi:cash"
     _attr_native_min_value = 0
@@ -360,7 +365,7 @@ class VehicleMaintenanceCostNumber(VehicleBaseNumber):
         maintenance_type: str,
         name: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance cost number."""
 
         super().__init__(hass, entry, vehicle)
         self._maintenance_type = maintenance_type
@@ -371,12 +376,12 @@ class VehicleMaintenanceCostNumber(VehicleBaseNumber):
 
     @property
     def native_value(self) -> float:
-        """Funcție pentru native valoare."""
+        """Return estimated maintenance cost."""
 
         return float(get_maintenance_value(self._vehicle, self._maintenance_type, COST_AMOUNT) or 0)
 
     async def async_set_native_value(self, value: float) -> None:
-        """Gestionează asincron operațiunea pentru set native valoare."""
+        """Set and persist estimated maintenance cost."""
 
         vehicles = self._get_vehicles_for_update()
 
@@ -389,7 +394,7 @@ class VehicleMaintenanceCostNumber(VehicleBaseNumber):
 
 
 class VehicleLegalCostNumber(VehicleBaseNumber):
-    """Clasă pentru vehicul legal cost număr."""
+    """Editable estimated legal cost."""
 
     _attr_icon = "mdi:cash-clock"
     _attr_native_min_value = 0
@@ -405,7 +410,7 @@ class VehicleLegalCostNumber(VehicleBaseNumber):
         legal_type: str,
         name: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize legal cost number."""
 
         super().__init__(hass, entry, vehicle)
         self._legal_type = legal_type
@@ -414,12 +419,12 @@ class VehicleLegalCostNumber(VehicleBaseNumber):
 
     @property
     def native_value(self) -> float:
-        """Funcție pentru native valoare."""
+        """Return estimated legal cost."""
 
         return float(get_legal_value(self._vehicle, self._legal_type, COST_AMOUNT) or 0)
 
     async def async_set_native_value(self, value: float) -> None:
-        """Gestionează asincron operațiunea pentru set native valoare."""
+        """Set and persist estimated legal cost."""
 
         vehicles = self._get_vehicles_for_update()
 

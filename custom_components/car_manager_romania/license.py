@@ -1,4 +1,4 @@
-"""Modul pentru validarea și stocarea licenței."""
+"""Licensing helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ ACCEPTED_LICENSE_STATUSES = {LICENSE_STATUS_ACTIVE, LICENSE_STATUS_TRIAL}
 
 @dataclass(slots=True)
 class LicenseResult:
-    """Clasă pentru licență result."""
+    """Normalized result returned by the licensing endpoint."""
 
     valid: bool
     status: str
@@ -52,7 +52,7 @@ class LicenseResult:
     username: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """Funcție pentru as dict."""
+        """Return a JSON-serializable representation."""
 
         return {
             "valid": self.valid,
@@ -66,12 +66,12 @@ class LicenseResult:
         }
 
 
-# Aliasuri de compatibilitate pentru denumiri istorice.
+# Compat aliases pentru denumiri istorice.
 RezultatLicenta = LicenseResult
 
 
 def build_instance_fingerprint(hass: HomeAssistant) -> str:
-    """Funcție pentru build instance amprentă."""
+    """Build a stable fingerprint for the Home Assistant instance."""
 
     parts = [
         DOMAIN,
@@ -84,13 +84,13 @@ def build_instance_fingerprint(hass: HomeAssistant) -> str:
 
 
 def construieste_fingerprint_instanta(hass: HomeAssistant) -> str:
-    """Funcție pentru construieste amprentă instanta."""
+    """Compatibility wrapper for historical naming."""
 
     return build_instance_fingerprint(hass)
 
 
 async def async_get_global_license(hass: HomeAssistant) -> dict[str, Any]:
-    """Gestionează asincron operațiunea pentru get global licență."""
+    """Load globally stored license data."""
 
     store = Store[dict[str, Any]](hass, STORAGE_VERSION_LICENSE, STORAGE_KEY_LICENSE)
     data = await store.async_load()
@@ -98,7 +98,7 @@ async def async_get_global_license(hass: HomeAssistant) -> dict[str, Any]:
 
 
 async def async_obtine_licenta_globala(hass: HomeAssistant) -> dict[str, Any]:
-    """Gestionează asincron operațiunea pentru obtine licenta globala."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_get_global_license(hass)
 
@@ -109,7 +109,7 @@ async def async_save_global_license(
     username: str,
     result: LicenseResult | None = None,
 ) -> None:
-    """Gestionează asincron operațiunea pentru salvare global licență."""
+    """Save license key and, when available, the last validation result."""
 
     store = Store[dict[str, Any]](hass, STORAGE_VERSION_LICENSE, STORAGE_KEY_LICENSE)
 
@@ -131,13 +131,13 @@ async def async_salveaza_licenta_globala(
     utilizator: str,
     rezultat: LicenseResult | None = None,
 ) -> None:
-    """Gestionează asincron operațiunea pentru salveaza licenta globala."""
+    """Compatibility wrapper for historical naming."""
 
     await async_save_global_license(hass, cheie_licenta, utilizator, rezultat)
 
 
 def _default_license_username(hass: HomeAssistant) -> str:
-    """Funcție internă pentru default licență username."""
+    """Return a non-sensitive default account label for the license server."""
 
     return str(getattr(hass.config, "location_name", "") or DOMAIN).strip()
 
@@ -148,7 +148,7 @@ async def async_get_license_context(
     username: str | None = None,
     license_key: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Gestionează asincron operațiunea pentru get licență context."""
+    """Return username, key and raw storage data for validation."""
 
     storage = await async_get_global_license(hass)
     storage_username = str(storage.get(CONF_LICENSE_USER, "")).strip()
@@ -179,7 +179,7 @@ async def async_obtine_context_licenta(
     utilizator: str | None = None,
     cheie_licenta: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Gestionează asincron operațiunea pentru obtine context licenta."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_get_license_context(hass, intrare, utilizator, cheie_licenta)
 
@@ -197,7 +197,7 @@ def _date_licenta_din_storage_sunt_pentru_contextul_curent(
     cheie_licenta: str,
     utilizator: str,
 ) -> bool:
-    """Funcție internă pentru citirea datelor de licență din stocarea locală."""
+    """Compatibility wrapper for historical naming."""
 
     return _stored_license_matches_context(date_licenta_globala, cheie_licenta, utilizator)
 
@@ -207,7 +207,7 @@ async def async_validate_license(
     license_key: str,
     username: str,
 ) -> LicenseResult:
-    """Gestionează asincron operațiunea pentru validare licență."""
+    """Validate a license using the configured licensing endpoint."""
 
     session = async_get_clientsession(hass)
     payload = {
@@ -287,13 +287,13 @@ async def async_valideaza_licenta(
     cheie_licenta: str,
     utilizator: str,
 ) -> LicenseResult:
-    """Gestionează asincron operațiunea pentru valideaza licenta."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_validate_license(hass, cheie_licenta, utilizator)
 
 
 def extract_stored_license_result(entry: ConfigEntry | None = None, storage: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Funcție pentru extract stocată licență result."""
+    """Extract the latest validation result from an entry or global storage."""
 
     if storage is not None:
         value = storage.get(DATE_VERIFICARE_LICENTA)
@@ -307,19 +307,19 @@ def extract_stored_license_result(entry: ConfigEntry | None = None, storage: dic
 
 
 def extrage_date_licenta_stocate(intrare: ConfigEntry) -> dict[str, Any]:
-    """Funcție pentru extrage dată licenta stocate."""
+    """Compatibility wrapper for historical naming."""
 
     return extract_stored_license_result(intrare)
 
 
 def license_is_accepted(license_data: dict[str, Any]) -> bool:
-    """Funcție pentru licență is acceptată."""
+    """Return True when stored validation data allows the integration to operate."""
 
     return bool(license_data.get("valid")) and license_data.get("status") in ACCEPTED_LICENSE_STATUSES
 
 
 def licenta_este_acceptata(date_licenta: dict[str, Any]) -> bool:
-    """Funcție pentru licenta este acceptata."""
+    """Compatibility wrapper for historical naming."""
 
     return license_is_accepted(date_licenta)
 
@@ -328,7 +328,7 @@ def can_use_cached_license(
     license_data: dict[str, Any],
     grace_days: int = DEFAULT_LICENSE_GRACE_DAYS,
 ) -> bool:
-    """Funcție pentru can use cached licență."""
+    """Return True if cached license data is still within the grace period."""
 
     if not license_is_accepted(license_data):
         return False
@@ -349,13 +349,13 @@ def se_poate_folosi_licenta_din_cache(
     date_licenta: dict[str, Any],
     zile_gratie: int = DEFAULT_LICENSE_GRACE_DAYS,
 ) -> bool:
-    """Funcție pentru verificarea licenței folosind datele păstrate local."""
+    """Compatibility wrapper for historical naming."""
 
     return can_use_cached_license(date_licenta, zile_gratie)
 
 
 def mask_license_key(key: str | None) -> str:
-    """Funcție pentru mask licență cheie."""
+    """Return a safe masked representation of a license key."""
 
     if not key:
         return ""
@@ -366,7 +366,7 @@ def mask_license_key(key: str | None) -> str:
 
 
 def mascheaza_cheia_licenta(cheie: str | None) -> str:
-    """Funcție pentru mascheaza cheia licenta."""
+    """Compatibility wrapper for historical naming."""
 
     return mask_license_key(cheie)
 
@@ -375,7 +375,7 @@ async def async_check_license(
     hass: HomeAssistant,
     entry: ConfigEntry | None = None,
 ) -> LicenseResult:
-    """Gestionează asincron operațiunea pentru verificare licență."""
+    """Validate current license and fall back to recently cached data on connection errors."""
 
     username, key, storage = await async_get_license_context(hass, entry=entry)
     result = await async_validate_license(hass, key, username)
@@ -415,13 +415,13 @@ async def async_verifica_licenta(
     hass: HomeAssistant,
     intrare: ConfigEntry | None = None,
 ) -> LicenseResult:
-    """Gestionează asincron operațiunea pentru verifica licenta."""
+    """Compatibility wrapper for historical naming."""
 
     return await async_check_license(hass, intrare)
 
 
 def validate_license_result(result: LicenseResult) -> None:
-    """Funcție pentru validare licență result."""
+    """Raise ValueError when the license result is not accepted."""
 
     if result.valid:
         return
@@ -443,7 +443,7 @@ def validate_license_result(result: LicenseResult) -> None:
 
 
 def valideaza_rezultat_licenta(rezultat: LicenseResult) -> None:
-    """Funcție pentru valideaza rezultat licenta."""
+    """Compatibility wrapper for historical naming."""
 
     validate_license_result(rezultat)
 
@@ -453,7 +453,7 @@ async def async_save_license_in_entry(
     entry: ConfigEntry,
     result: LicenseResult,
 ) -> None:
-    """Gestionează asincron operațiunea pentru salvare licență in intrare."""
+    """Persist latest validation result in global storage and in the config entry."""
 
     username, key, _storage = await async_get_license_context(hass, entry=entry)
     await async_save_global_license(hass, key, username, result)
@@ -468,7 +468,7 @@ async def async_salveaza_licenta_in_intrare(
     intrare: ConfigEntry,
     rezultat: LicenseResult,
 ) -> None:
-    """Gestionează asincron operațiunea pentru salveaza licenta in intrare."""
+    """Compatibility wrapper for historical naming."""
 
     await async_save_license_in_entry(hass, intrare, rezultat)
 
@@ -477,7 +477,7 @@ def _now_utc_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-# Etichetele sunt definite la final, astfel încât async_validate_license să poată folosi mapa completă.
+# Labels are defined at the end so async_validate_license can use the final map.
 LICENSE_STATUS_LABELS: dict[str, str] = {
     LICENSE_STATUS_ACTIVE: "Activă",
     LICENSE_STATUS_TRIAL: "Trial activ",

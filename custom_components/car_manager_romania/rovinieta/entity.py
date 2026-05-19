@@ -1,4 +1,4 @@
-"""Modul pentru entitățile de bază."""
+"""Base entities for Car Manager România rovinieta."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from ..const import DOMAIN, CONF_NAME, CONF_LICENSE_PLATE, CONF_VIN
 
 
 class ERovinietaCoordinatorEntity(CoordinatorEntity):
-    """Clasă pentru erovinieta coordonator entitate."""
+    """Base coordinator entity for rovinieta."""
 
     _attr_has_entity_name = True
 
@@ -20,7 +20,7 @@ class ERovinietaCoordinatorEntity(CoordinatorEntity):
 
     @property
     def account_device_info(self) -> DeviceInfo:
-        """Funcție pentru cont dispozitiv informații."""
+        """Return Car Manager account/device info."""
         return DeviceInfo(
             identifiers={(DOMAIN, "rovinieta_account")},
             name="Rovinietă",
@@ -29,7 +29,7 @@ class ERovinietaCoordinatorEntity(CoordinatorEntity):
         )
 
     def vehicle_device_info(self, vehicle: dict) -> DeviceInfo:
-        """Funcție pentru vehicul dispozitiv informații."""
+        """Return vehicle device info."""
         vehicle_name = (
             vehicle.get(CONF_NAME)
             or vehicle.get(CONF_LICENSE_PLATE)

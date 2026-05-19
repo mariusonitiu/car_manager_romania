@@ -1,4 +1,4 @@
-"""Modul pentru persistența locală a datelor."""
+"""Storage helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ from .const import (
 
 
 class CarManagerNotificationStore:
-    """Clasă pentru stocarea notificărilor."""
+    """Store notified maintenance statuses."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Funcție internă pentru init."""
+        """Initialize notification store."""
 
         self._store: Store = Store(
             hass,
@@ -35,7 +35,7 @@ class CarManagerNotificationStore:
         self._loaded = False
 
     async def async_load(self) -> None:
-        """Gestionează asincron operațiunea pentru încărcare."""
+        """Load stored data."""
 
         if self._loaded:
             return
@@ -49,21 +49,21 @@ class CarManagerNotificationStore:
         self._loaded = True
 
     async def async_get_notified_status(self, key: str) -> str | None:
-        """Gestionează asincron citirea statusului notificat."""
+        """Return notified status for key."""
 
         await self.async_load()
         value = self._data["notified"].get(key)
         return str(value) if value else None
 
     async def async_set_notified_status(self, key: str, status: str) -> None:
-        """Gestionează asincron salvarea statusului notificat."""
+        """Persist notified status."""
 
         await self.async_load()
         self._data["notified"][key] = status
         await self._store.async_save(self._data)
 
     async def async_clear_notified_status(self, key: str) -> None:
-        """Gestionează asincron curățarea statusului notificat."""
+        """Clear notified status."""
 
         await self.async_load()
         if key not in self._data["notified"]:
@@ -74,10 +74,10 @@ class CarManagerNotificationStore:
 
 
 class CarManagerServiceHistoryStore:
-    """Clasă pentru stocarea istoricului de intervenții."""
+    """Store service/intervention history records."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Funcție internă pentru init."""
+        """Initialize service history store."""
 
         self._store: Store = Store(
             hass,
@@ -88,7 +88,7 @@ class CarManagerServiceHistoryStore:
         self._loaded = False
 
     async def async_load(self) -> None:
-        """Gestionează asincron operațiunea pentru încărcare."""
+        """Load service history records."""
 
         if self._loaded:
             return
@@ -106,27 +106,27 @@ class CarManagerServiceHistoryStore:
         self._loaded = True
 
     async def async_get_records(self) -> list[dict[str, Any]]:
-        """Gestionează asincron operațiunea pentru get records."""
+        """Return all stored service history records."""
 
         await self.async_load()
         return deepcopy(self._records)
 
     async def async_save_records(self, records: list[dict[str, Any]]) -> None:
-        """Gestionează asincron operațiunea pentru salvare records."""
+        """Persist service history records."""
 
         await self.async_load()
         self._records = [deepcopy(record) for record in records if isinstance(record, dict)]
         await self._store.async_save({"records": self._records})
 
     async def async_add_record(self, record: dict[str, Any]) -> None:
-        """Gestionează asincron operațiunea pentru adăugare record."""
+        """Append and persist a new service history record."""
 
         await self.async_load()
         self._records.append(deepcopy(record))
         await self._store.async_save({"records": self._records})
 
     async def async_get_record(self, record_id: str) -> dict[str, Any] | None:
-        """Gestionează asincron operațiunea pentru get record."""
+        """Return one service history record by ID."""
 
         await self.async_load()
         for record in self._records:
@@ -135,7 +135,7 @@ class CarManagerServiceHistoryStore:
         return None
 
     async def async_update_record(self, record_id: str, changes: dict[str, Any]) -> None:
-        """Gestionează asincron operațiunea pentru actualizare record."""
+        """Update one service history record and persist history."""
 
         await self.async_load()
         for index, record in enumerate(self._records):
@@ -147,7 +147,12 @@ class CarManagerServiceHistoryStore:
                 return
 
     async def async_delete_record(self, record_id: str) -> bool:
-        """Gestionează asincron operațiunea pentru ștergere record."""
+        """Delete one service history record and persist history.
+
+        This only removes the history row. It does not change vehicle maintenance
+        values. Use restore_service_record before deletion when the maintenance
+        update must be reverted.
+        """
 
         await self.async_load()
         original_count = len(self._records)
@@ -164,10 +169,10 @@ class CarManagerServiceHistoryStore:
 
 
 class CarManagerFuelReceiptStore:
-    """Clasă pentru stocarea bonurilor de combustibil."""
+    """Store fuel receipts separately from service history."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Funcție internă pentru init."""
+        """Initialize fuel receipt store."""
 
         self._store: Store = Store(
             hass,
@@ -178,7 +183,7 @@ class CarManagerFuelReceiptStore:
         self._loaded = False
 
     async def async_load(self) -> None:
-        """Gestionează asincron operațiunea pentru încărcare."""
+        """Load fuel receipts."""
 
         if self._loaded:
             return
@@ -196,27 +201,27 @@ class CarManagerFuelReceiptStore:
         self._loaded = True
 
     async def async_get_receipts(self) -> list[dict[str, Any]]:
-        """Gestionează asincron operațiunea pentru get bonuri."""
+        """Return all fuel receipts."""
 
         await self.async_load()
         return deepcopy(self._receipts)
 
     async def async_save_receipts(self, receipts: list[dict[str, Any]]) -> None:
-        """Gestionează asincron operațiunea pentru salvare bonuri."""
+        """Persist fuel receipts."""
 
         await self.async_load()
         self._receipts = [deepcopy(receipt) for receipt in receipts if isinstance(receipt, dict)]
         await self._store.async_save({"receipts": self._receipts})
 
     async def async_add_receipt(self, receipt: dict[str, Any]) -> None:
-        """Gestionează asincron operațiunea pentru adăugare bon."""
+        """Append and persist a fuel receipt."""
 
         await self.async_load()
         self._receipts.append(deepcopy(receipt))
         await self._store.async_save({"receipts": self._receipts})
 
     async def async_update_receipt(self, receipt_id: str, updated_receipt: dict[str, Any]) -> bool:
-        """Gestionează asincron operațiunea pentru actualizare bon."""
+        """Replace one fuel receipt by ID and persist the change."""
 
         await self.async_load()
         for index, receipt in enumerate(self._receipts):
@@ -227,7 +232,7 @@ class CarManagerFuelReceiptStore:
         return False
 
     async def async_delete_receipt(self, receipt_id: str) -> bool:
-        """Gestionează asincron operațiunea pentru ștergere bon."""
+        """Delete a fuel receipt by ID."""
 
         await self.async_load()
         original_count = len(self._receipts)
@@ -244,10 +249,10 @@ class CarManagerFuelReceiptStore:
 
 
 class CarManagerVehicleStore:
-    """Clasă pentru stocarea datelor editabile ale vehiculelor."""
+    """Store editable vehicle data outside the config entry options."""
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Funcție internă pentru init."""
+        """Initialize vehicle store."""
 
         self._store: Store = Store(
             hass,
@@ -258,7 +263,7 @@ class CarManagerVehicleStore:
         self._loaded = False
 
     async def async_load(self) -> None:
-        """Gestionează asincron operațiunea pentru încărcare."""
+        """Load vehicles from Home Assistant storage."""
 
         if self._loaded:
             return
@@ -272,13 +277,13 @@ class CarManagerVehicleStore:
         self._loaded = True
 
     async def async_get_vehicles(self) -> list[dict[str, Any]]:
-        """Gestionează asincron operațiunea pentru get vehicule."""
+        """Return stored vehicles."""
 
         await self.async_load()
         return deepcopy(self._vehicles)
 
     async def async_save_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
-        """Gestionează asincron operațiunea pentru salvare vehicule."""
+        """Persist vehicles to Home Assistant storage."""
 
         await self.async_load()
         self._vehicles = [deepcopy(vehicle) for vehicle in vehicles if isinstance(vehicle, dict)]
@@ -289,7 +294,12 @@ def merge_vehicle_sources(
     option_vehicles: list[dict[str, Any]],
     stored_vehicles: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Funcție pentru merge vehicul sources."""
+    """Merge config-entry vehicles with stored editable vehicle data.
+
+    Vehicles from the config entry provide the base list, so newly added vehicles are kept.
+    Stored vehicles override editable values for matching vehicle_id, so data entered through
+    number/date/text entities survives restarts even when config entry options are reloaded.
+    """
 
     merged: list[dict[str, Any]] = []
     stored_by_id = {

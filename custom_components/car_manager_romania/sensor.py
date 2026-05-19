@@ -1,4 +1,4 @@
-"""Modul pentru senzorii Car Manager România."""
+"""Sensor platform for Car Manager România."""
 
 from __future__ import annotations
 
@@ -15,18 +15,6 @@ from .device import build_vehicle_device_info
 from . import CarManagerConfigEntry
 from .const import (
     ATTR_INTEGRATION_VERSION,
-    CONF_NOTIFICATIONS_ENABLED,
-    CONF_NOTIFY_MAINTENANCE,
-    CONF_NOTIFY_LEGAL,
-    CONF_NOTIFY_EQUIPMENT,
-    CONF_NOTIFY_BATTERY,
-    CONF_NOTIFY_EXPENSES,
-    DEFAULT_NOTIFICATIONS_ENABLED,
-    DEFAULT_NOTIFY_MAINTENANCE,
-    DEFAULT_NOTIFY_LEGAL,
-    DEFAULT_NOTIFY_EQUIPMENT,
-    DEFAULT_NOTIFY_BATTERY,
-    DEFAULT_NOTIFY_EXPENSES,
     CONF_KM,
     CONF_LICENSE_PLATE,
     LEGAL_END_DATE,
@@ -69,7 +57,6 @@ from .maintenance import (
 )
 from .costs import annual_history_total, expense_total, upcoming_expense_items
 from .fuel import enriched_fuel_receipts_for_vehicle, fuel_consumption_intervals, fuel_current_month_total, fuel_current_year_total, latest_average_consumption
-from .statistics import vehicle_chart_data, vehicle_statistics
 from .tire import tire_sets_for_vehicle, current_year_tire_cost_total
 from .equipment import equipment_items_for_vehicle, current_year_equipment_cost_total
 from .battery import battery_items_for_vehicle, current_battery_for_vehicle, current_year_battery_cost_total
@@ -83,7 +70,7 @@ async def async_setup_entry(
     entry: CarManagerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Configurează componentele integrației în Home Assistant."""
+    """Set up Car Manager România sensors."""
 
     entities: list[SensorEntity] = [
         CarManagerStatusSensor(entry),
@@ -149,19 +136,19 @@ async def async_setup_entry(
 
 
 class CarManagerBaseSensor(SensorEntity):
-    """Clasă pentru de bază senzor."""
+    """Base sensor for Car Manager România."""
 
     _attr_has_entity_name = True
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Funcție internă pentru init."""
+        """Initialize base sensor."""
 
         self._entry = entry
         self._entry_id = entry.entry_id
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Funcție pentru dispozitiv informații."""
+        """Return hub device information."""
 
         return DeviceInfo(
             identifiers={(DOMAIN, self._entry_id)},
@@ -173,27 +160,27 @@ class CarManagerBaseSensor(SensorEntity):
 
 
 class CarManagerStatusSensor(CarManagerBaseSensor):
-    """Clasă pentru senzorul de status."""
+    """Status sensor for Car Manager România."""
 
     _attr_name = "Status"
     _attr_icon = "mdi:car-cog"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Funcție internă pentru init."""
+        """Initialize status sensor."""
 
         super().__init__(entry)
         self._attr_unique_id = f"{entry.entry_id}_status"
 
     @property
     def native_value(self) -> str:
-        """Funcție pentru native valoare."""
+        """Return status."""
 
         return "activ"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return attributes."""
 
         all_vehicles = getattr(self._entry.runtime_data, "all_vehicles", self._entry.runtime_data.vehicles)
         inactive_vehicles: list[dict[str, Any]] = []
@@ -211,44 +198,34 @@ class CarManagerStatusSensor(CarManagerBaseSensor):
                 }
             )
 
-        options = self._entry.options or {}
-
         return {
             ATTR_INTEGRATION_VERSION: VERSION,
             "inactive_vehicles": inactive_vehicles,
-            "notification_options": {
-                CONF_NOTIFICATIONS_ENABLED: bool(options.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED)),
-                CONF_NOTIFY_MAINTENANCE: bool(options.get(CONF_NOTIFY_MAINTENANCE, DEFAULT_NOTIFY_MAINTENANCE)),
-                CONF_NOTIFY_LEGAL: bool(options.get(CONF_NOTIFY_LEGAL, DEFAULT_NOTIFY_LEGAL)),
-                CONF_NOTIFY_EQUIPMENT: bool(options.get(CONF_NOTIFY_EQUIPMENT, DEFAULT_NOTIFY_EQUIPMENT)),
-                CONF_NOTIFY_BATTERY: bool(options.get(CONF_NOTIFY_BATTERY, DEFAULT_NOTIFY_BATTERY)),
-                CONF_NOTIFY_EXPENSES: bool(options.get(CONF_NOTIFY_EXPENSES, DEFAULT_NOTIFY_EXPENSES)),
-            },
         }
 
 
 class CarManagerVehicleCountSensor(CarManagerBaseSensor):
-    """Clasă pentru vehicul count senzor."""
+    """Vehicle count sensor for Car Manager România."""
 
     _attr_name = "Număr autovehicule"
     _attr_icon = "mdi:car-multiple"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, entry: CarManagerConfigEntry) -> None:
-        """Funcție internă pentru init."""
+        """Initialize vehicle count sensor."""
 
         super().__init__(entry)
         self._attr_unique_id = f"{entry.entry_id}_vehicle_count"
 
     @property
     def native_value(self) -> int:
-        """Funcție pentru native valoare."""
+        """Return vehicle count."""
 
         return len(self._entry.runtime_data.vehicles)
 
 
 class CarManagerLicenseSensor(CarManagerBaseSensor):
-    """Clasă pentru licență senzor."""
+    """Diagnostic sensor exposing the globally stored license state."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:shield-key-outline"
@@ -264,7 +241,7 @@ class CarManagerLicenseSensor(CarManagerBaseSensor):
     }
 
     def __init__(self, entry: CarManagerConfigEntry, key: str, name: str) -> None:
-        """Funcție internă pentru init."""
+        """Initialize license sensor."""
 
         super().__init__(entry)
         self._key = key
@@ -275,7 +252,7 @@ class CarManagerLicenseSensor(CarManagerBaseSensor):
         self._attr_native_value = "-"
 
     async def async_added_to_hass(self) -> None:
-        """Gestionează asincron operațiunea pentru added to hass."""
+        """Load initial value and listen for license changes."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -287,18 +264,18 @@ class CarManagerLicenseSensor(CarManagerBaseSensor):
         await self._async_refresh_value()
 
     async def _handle_license_updated(self) -> None:
-        """Funcție internă pentru gestionare licență updated."""
+        """Refresh state after the license storage changes."""
 
         await self._async_refresh_value()
         self.async_write_ha_state()
 
     async def async_update(self) -> None:
-        """Gestionează asincron operațiunea pentru actualizare."""
+        """Refresh value from storage."""
 
         await self._async_refresh_value()
 
     async def _async_refresh_value(self) -> None:
-        """Funcție internă pentru refresh valoare."""
+        """Refresh native value from the license store."""
 
         storage = await async_obtine_licenta_globala(self.hass)
         storage = storage if isinstance(storage, dict) else {}
@@ -323,7 +300,7 @@ class CarManagerLicenseSensor(CarManagerBaseSensor):
 
 
 class CarVehicleBaseSensor(SensorEntity):
-    """Clasă pentru vehicul de bază senzor."""
+    """Base vehicle sensor."""
 
     _attr_has_entity_name = True
 
@@ -332,7 +309,7 @@ class CarVehicleBaseSensor(SensorEntity):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize vehicle base sensor."""
 
         self._entry = entry
         self._vehicle = vehicle
@@ -340,7 +317,7 @@ class CarVehicleBaseSensor(SensorEntity):
         self._license_allows_all_vehicles = False
 
     async def async_added_to_hass(self) -> None:
-        """Gestionează asincron operațiunea pentru added to hass."""
+        """Subscribe to vehicle and license data updates."""
 
         self.async_on_remove(
             async_dispatcher_connect(
@@ -360,19 +337,19 @@ class CarVehicleBaseSensor(SensorEntity):
 
     @callback
     def _schedule_license_refresh(self) -> None:
-        """Funcție internă pentru schedule licență refresh."""
+        """Schedule a license-gate refresh."""
 
         self.hass.async_create_task(self._async_refresh_license_gate())
 
     async def _async_refresh_license_gate(self, write_state: bool = True) -> None:
-        """Funcție internă pentru refresh licență gate."""
+        """Refresh the cached license gate used by sync entity properties."""
 
         self._license_allows_all_vehicles = await async_license_allows_all_vehicles(self.hass)
         if write_state:
             self.async_write_ha_state()
 
     def _handle_vehicles_updated(self, vehicles: list[dict[str, Any]]) -> None:
-        """Funcție internă pentru gestionare vehicule updated."""
+        """Refresh cached vehicle data and update the entity state."""
 
         for vehicle in vehicles:
             if vehicle.get("vehicle_id") == self._vehicle_id:
@@ -382,7 +359,7 @@ class CarVehicleBaseSensor(SensorEntity):
 
     @property
     def _blocked_by_license(self) -> bool:
-        """Funcție internă pentru blocate by licență."""
+        """Return True if this vehicle may not expose data."""
 
         return not vehicle_allowed_by_license(
             self._entry,
@@ -392,18 +369,18 @@ class CarVehicleBaseSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Funcție pentru disponibil."""
+        """Return availability."""
 
         return not self._blocked_by_license
 
     def _locked_attributes(self) -> dict[str, Any]:
-        """Funcție internă pentru blocate atribute."""
+        """Return neutral attributes for a locked vehicle."""
 
         return locked_vehicle_attributes(self._vehicle_id)
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Funcție pentru dispozitiv informații."""
+        """Return vehicle device information."""
 
         return build_vehicle_device_info(
             self._vehicle,
@@ -411,7 +388,7 @@ class CarVehicleBaseSensor(SensorEntity):
 
 
 class CarVehicleKmSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul km senzor."""
+    """Vehicle kilometers sensor."""
 
     _attr_name = "Kilometri"
     _attr_icon = "mdi:speedometer"
@@ -422,20 +399,20 @@ class CarVehicleKmSensor(CarVehicleBaseSensor):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize vehicle kilometers sensor."""
 
         super().__init__(entry, vehicle)
         self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_km"
 
     @property
     def native_value(self) -> int:
-        """Funcție pentru native valoare."""
+        """Return current kilometers."""
 
         return int(self._vehicle.get(CONF_KM, 0) or 0)
 
 
 class CarVehicleStatusSensor(CarVehicleBaseSensor):
-    """Clasă pentru senzorul de status al vehiculului."""
+    """Vehicle status sensor."""
 
     _attr_name = "Status"
     _attr_icon = "mdi:car-info"
@@ -446,20 +423,20 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize vehicle status sensor."""
 
         super().__init__(entry, vehicle)
         self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_status"
 
     @property
     def native_value(self) -> str:
-        """Funcție pentru native valoare."""
+        """Return vehicle status."""
 
         return "configurat"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return vehicle attributes."""
 
         if self._blocked_by_license:
             return self._locked_attributes()
@@ -472,11 +449,6 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
 
         if self._vehicle.get(CONF_VIN):
             attributes[CONF_VIN] = self._vehicle[CONF_VIN]
-
-        # Afișăm statisticile cât mai sus în atribute, ca să poată fi verificate ușor
-        # în Developer Tools fără să fie nevoie de derulare prin istoricul lung.
-        attributes["vehicle_statistics"] = vehicle_statistics(self._entry, self._vehicle)
-        attributes["vehicle_chart_data"] = vehicle_chart_data(self._entry, self._vehicle)
 
         records = getattr(self._entry.runtime_data.service_history_store, "_records", [])
         vehicle_records: list[dict[str, Any]] = []
@@ -521,7 +493,7 @@ class CarVehicleStatusSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul viitoare cheltuieli senzor."""
+    """Upcoming expenses total sensor."""
 
     _attr_icon = "mdi:cash-clock"
     _attr_native_unit_of_measurement = "RON"
@@ -532,7 +504,7 @@ class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
         vehicle: dict[str, Any],
         horizon_days: int,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize upcoming expenses sensor."""
 
         super().__init__(entry, vehicle)
         self._horizon_days = horizon_days
@@ -543,7 +515,7 @@ class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
 
     @property
     def native_value(self) -> float:
-        """Funcție pentru native valoare."""
+        """Return total upcoming expenses."""
 
         return expense_total(
             upcoming_expense_items(
@@ -556,7 +528,7 @@ class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return upcoming expense details."""
 
         if self._blocked_by_license:
             return self._locked_attributes()
@@ -578,7 +550,7 @@ class CarVehicleUpcomingExpensesSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleAnnualCostsSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul anual costuri senzor."""
+    """Current-year historic costs sensor."""
 
     _attr_name = "Costuri anul curent"
     _attr_icon = "mdi:cash-multiple"
@@ -589,20 +561,20 @@ class CarVehicleAnnualCostsSensor(CarVehicleBaseSensor):
         entry: CarManagerConfigEntry,
         vehicle: dict[str, Any],
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize annual costs sensor."""
 
         super().__init__(entry, vehicle)
         self._attr_unique_id = f"{entry.entry_id}_{self._vehicle_id}_annual_costs_current_year"
 
     @property
     def native_value(self) -> float:
-        """Funcție pentru native valoare."""
+        """Return current-year historic costs."""
 
         return annual_history_total(self._entry, self._vehicle)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return annual cost metadata."""
 
         from datetime import date as dt_date
 
@@ -613,7 +585,7 @@ class CarVehicleAnnualCostsSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleFuelAnnualCostSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul combustibil anual cost senzor."""
+    """Current-year fuel cost sensor."""
 
     _attr_name = "Combustibil anul curent"
     _attr_icon = "mdi:gas-station"
@@ -634,7 +606,7 @@ class CarVehicleFuelAnnualCostSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleFuelMonthlyCostSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul combustibil lunar cost senzor."""
+    """Current-month fuel cost sensor."""
 
     _attr_name = "Combustibil luna curentă"
     _attr_icon = "mdi:gas-station-outline"
@@ -656,7 +628,7 @@ class CarVehicleFuelMonthlyCostSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleFuelAverageConsumptionSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul combustibil mediu consum senzor."""
+    """Latest valid fuel consumption sensor."""
 
     _attr_name = "Consum mediu combustibil"
     _attr_icon = "mdi:chart-line"
@@ -678,7 +650,7 @@ class CarVehicleFuelAverageConsumptionSensor(CarVehicleBaseSensor):
 
 
 def _vehicle_overall_summary(vehicle: dict[str, Any]) -> dict[str, Any]:
-    """Funcție internă pentru vehicul general rezumat."""
+    """Build an aggregated health summary for one vehicle."""
 
     critical_items: list[dict[str, Any]] = []
     warning_items: list[dict[str, Any]] = []
@@ -769,7 +741,7 @@ def _build_overall_item(
     days_remaining: int | None,
     km_remaining: int | None,
 ) -> dict[str, Any]:
-    """Funcție internă pentru build general element."""
+    """Build one compact aggregated summary item."""
 
     parts: list[str] = [status]
     if days_remaining is not None:
@@ -789,7 +761,7 @@ def _build_overall_item(
 
 
 def _service_history_type_label(record_type: str) -> str:
-    """Funcție internă pentru eticheta tipului de intervenție din istoric."""
+    """Return a human label for a service history record type."""
 
     if record_type in MAINTENANCE_TYPES:
         return MAINTENANCE_TYPES[record_type]
@@ -804,7 +776,7 @@ def _service_history_type_label(record_type: str) -> str:
 
 
 class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul mentenanță de bază senzor."""
+    """Base maintenance sensor."""
 
     def __init__(
         self,
@@ -813,19 +785,19 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         maintenance_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance base sensor."""
 
         super().__init__(entry, vehicle)
         self._maintenance_type = maintenance_type
         self._label = label
 
     def _current_km(self) -> int:
-        """Funcție internă pentru curent km."""
+        """Return current vehicle kilometers."""
 
         return int(self._vehicle.get(CONF_KM, 0) or 0)
 
     def _last_km(self) -> int | None:
-        """Funcție internă pentru last km."""
+        """Return last maintenance kilometers."""
 
         value = get_maintenance_value(
             self._vehicle,
@@ -839,7 +811,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         return int(value or 0)
 
     def _interval_km(self) -> int | None:
-        """Funcție internă pentru interval km."""
+        """Return maintenance interval kilometers."""
 
         value = get_maintenance_value(
             self._vehicle,
@@ -853,7 +825,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         return int(value or 0)
 
     def _last_date(self) -> Any:
-        """Funcție internă pentru last dată."""
+        """Return last maintenance date."""
 
         return get_maintenance_value(
             self._vehicle,
@@ -862,7 +834,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         )
 
     def _interval_days(self) -> int | None:
-        """Funcție internă pentru interval zile."""
+        """Return maintenance interval days."""
 
         value = get_maintenance_value(
             self._vehicle,
@@ -876,7 +848,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         return int(value or 0)
 
     def _km_remaining(self) -> int | None:
-        """Funcție internă pentru km rămași."""
+        """Returnează kilometrii rămași, inclusiv valori negative când termenul este depășit."""
 
         return calculate_km_remaining(
             self._current_km(),
@@ -885,7 +857,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         )
 
     def _days_remaining(self) -> int | None:
-        """Funcție internă pentru zile rămași."""
+        """Returnează zilele rămase, inclusiv valori negative când termenul este depășit."""
 
         return calculate_days_remaining(
             self._last_date(),
@@ -893,7 +865,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
         )
 
     def _unique_suffix(self, suffix: str) -> str:
-        """Funcție internă pentru unic suffix."""
+        """Return unique suffix, preserving old service entity IDs."""
 
         if self._maintenance_type == MAINTENANCE_TYPE_SERVICE:
             service_suffix_map = {
@@ -907,7 +879,7 @@ class CarVehicleMaintenanceBaseSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleMaintenanceKmRemainingSensor(CarVehicleMaintenanceBaseSensor):
-    """Clasă pentru vehicul mentenanță km rămași senzor."""
+    """Maintenance remaining kilometers sensor."""
 
     _attr_icon = "mdi:counter"
     _attr_native_unit_of_measurement = UnitOfLength.KILOMETERS
@@ -919,7 +891,7 @@ class CarVehicleMaintenanceKmRemainingSensor(CarVehicleMaintenanceBaseSensor):
         maintenance_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance remaining kilometers sensor."""
 
         super().__init__(entry, vehicle, maintenance_type, label)
 
@@ -934,13 +906,13 @@ class CarVehicleMaintenanceKmRemainingSensor(CarVehicleMaintenanceBaseSensor):
 
     @property
     def native_value(self) -> int | None:
-        """Funcție pentru native valoare."""
+        """Returnează kilometrii rămași, inclusiv valori negative când termenul este depășit."""
 
         return self._km_remaining()
 
 
 class CarVehicleMaintenanceDaysRemainingSensor(CarVehicleMaintenanceBaseSensor):
-    """Clasă pentru vehicul mentenanță zile rămași senzor."""
+    """Maintenance remaining days sensor."""
 
     _attr_icon = "mdi:calendar-clock"
 
@@ -951,7 +923,7 @@ class CarVehicleMaintenanceDaysRemainingSensor(CarVehicleMaintenanceBaseSensor):
         maintenance_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance remaining days sensor."""
 
         super().__init__(entry, vehicle, maintenance_type, label)
 
@@ -966,13 +938,13 @@ class CarVehicleMaintenanceDaysRemainingSensor(CarVehicleMaintenanceBaseSensor):
 
     @property
     def native_value(self) -> int | None:
-        """Funcție pentru native valoare."""
+        """Returnează zilele rămase, inclusiv valori negative când termenul este depășit."""
 
         return self._days_remaining()
 
 
 class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
-    """Clasă pentru senzorul statusului de mentenanță al vehiculului."""
+    """Maintenance status sensor."""
 
     _attr_icon = "mdi:wrench-clock"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -984,7 +956,7 @@ class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
         maintenance_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize maintenance status sensor."""
 
         super().__init__(entry, vehicle, maintenance_type, label)
 
@@ -999,7 +971,7 @@ class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
 
     @property
     def native_value(self) -> str:
-        """Funcție pentru native valoare."""
+        """Return maintenance status."""
 
         return calculate_maintenance_status(
             self._km_remaining(),
@@ -1007,7 +979,7 @@ class CarVehicleMaintenanceStatusSensor(CarVehicleMaintenanceBaseSensor):
         )
 
 class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
-    """Clasă pentru vehicul legal zile rămași senzor."""
+    """Legal term remaining days sensor."""
 
     _attr_icon = "mdi:calendar-clock"
 
@@ -1018,7 +990,7 @@ class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
         legal_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize legal term remaining days sensor."""
 
         super().__init__(entry, vehicle)
         self._legal_type = legal_type
@@ -1030,13 +1002,13 @@ class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
 
     @property
     def native_value(self) -> int | None:
-        """Funcție pentru native valoare."""
+        """Return remaining days until legal term expiration."""
 
         return legal_days_remaining(self._vehicle, self._legal_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return legal term date attributes."""
 
         if self._blocked_by_license:
             return self._locked_attributes()
@@ -1067,7 +1039,7 @@ class CarVehicleLegalDaysRemainingSensor(CarVehicleBaseSensor):
 
 
 class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
-    """Clasă pentru senzorul statusului legal al vehiculului."""
+    """Legal term status sensor."""
 
     _attr_icon = "mdi:shield-car"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -1079,7 +1051,7 @@ class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
         legal_type: str,
         label: str,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize legal term status sensor."""
 
         super().__init__(entry, vehicle)
         self._legal_type = legal_type
@@ -1089,13 +1061,13 @@ class CarVehicleLegalStatusSensor(CarVehicleBaseSensor):
 
     @property
     def native_value(self) -> str:
-        """Funcție pentru native valoare."""
+        """Return calculated legal term status."""
 
         return legal_status(self._vehicle, self._legal_type)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Funcție pentru extra state atribute."""
+        """Return legal term attributes without external lookups."""
 
         if self._blocked_by_license:
             return self._locked_attributes()

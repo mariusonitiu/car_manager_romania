@@ -1,4 +1,4 @@
-"""Modul pentru bonurile și calculele de combustibil."""
+"""Fuel receipt helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from .const import (
 
 
 def vehicle_fuel_profile(vehicle: dict[str, Any]) -> str:
-    """Funcție pentru vehicul combustibil profil."""
+    """Return normalized vehicle fuel profile."""
 
     profile = str(vehicle.get(CONF_FUEL_PROFILE, "") or "").strip()
     if profile in FUEL_PROFILES:
@@ -25,25 +25,25 @@ def vehicle_fuel_profile(vehicle: dict[str, Any]) -> str:
 
 
 def allowed_fuel_types(vehicle: dict[str, Any]) -> list[str]:
-    """Funcție pentru permise combustibil tipuri."""
+    """Return allowed fuel type keys for a vehicle."""
 
     return list(FUEL_TYPES_BY_PROFILE.get(vehicle_fuel_profile(vehicle), FUEL_TYPES_BY_PROFILE[FUEL_PROFILE_DIESEL]))
 
 
 def fuel_type_label(fuel_type: str) -> str:
-    """Funcție pentru combustibil tip etichetă."""
+    """Return user-facing fuel type label."""
 
     return FUEL_TYPES.get(fuel_type, fuel_type.replace("_", " ").title())
 
 
 def is_liquid_fuel(fuel_type: str) -> bool:
-    """Funcție pentru is lichid combustibil."""
+    """Return true for liquid/LPG fuel types measured in liters."""
 
     return fuel_type in FUEL_LIQUID_TYPES
 
 
 def fuel_receipts_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> list[dict[str, Any]]:
-    """Funcție pentru combustibil bonuri for vehicul."""
+    """Return stored fuel receipts for one vehicle."""
 
     vehicle_id = str(vehicle.get("vehicle_id", ""))
     store = getattr(entry.runtime_data, "fuel_receipt_store", None)
@@ -54,7 +54,7 @@ def fuel_receipts_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> list[dict[
 
 
 def fuel_current_year_total(entry: Any, vehicle: dict[str, Any]) -> float:
-    """Funcție pentru combustibil curent an total."""
+    """Return fuel cost total for the current year."""
 
     year = dt_date.today().year
     total = 0.0
@@ -69,7 +69,7 @@ def fuel_current_year_total(entry: Any, vehicle: dict[str, Any]) -> float:
 
 
 def fuel_current_month_total(entry: Any, vehicle: dict[str, Any]) -> float:
-    """Funcție pentru combustibil curent lună total."""
+    """Return fuel cost total for the current month."""
 
     today = dt_date.today()
     total = 0.0
@@ -84,7 +84,7 @@ def fuel_current_month_total(entry: Any, vehicle: dict[str, Any]) -> float:
 
 
 def enrich_fuel_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
-    """Funcție pentru enrich combustibil bon."""
+    """Return a receipt copy with calculated fields."""
 
     enriched = dict(receipt)
     quantity = float(enriched.get("quantity", 0) or 0)
@@ -97,7 +97,7 @@ def enrich_fuel_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 def enriched_fuel_receipts_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> list[dict[str, Any]]:
-    """Funcție pentru enriched combustibil bonuri for vehicul."""
+    """Return enriched fuel receipts in reverse chronological order."""
 
     receipts = [enrich_fuel_receipt(receipt) for receipt in fuel_receipts_for_vehicle(entry, vehicle)]
     receipts.sort(key=lambda item: (str(item.get("date", "")), int(item.get("km", 0) or 0), str(item.get("receipt_id", ""))), reverse=True)
@@ -105,7 +105,11 @@ def enriched_fuel_receipts_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> l
 
 
 def fuel_consumption_intervals(entry: Any, vehicle: dict[str, Any]) -> list[dict[str, Any]]:
-    """Funcție pentru combustibil consum intervals."""
+    """Calculate valid consumption intervals between full refills.
+
+    Partial refills between two full refills are cumulated. The first full refill is
+    only a baseline and does not produce an interval by itself.
+    """
 
     receipts = [receipt for receipt in fuel_receipts_for_vehicle(entry, vehicle) if is_liquid_fuel(str(receipt.get("fuel_type", "")))]
     receipts.sort(key=lambda item: (str(item.get("date", "")), int(item.get("km", 0) or 0), str(item.get("receipt_id", ""))))
@@ -160,7 +164,7 @@ def fuel_consumption_intervals(entry: Any, vehicle: dict[str, Any]) -> list[dict
 
 
 def latest_average_consumption(entry: Any, vehicle: dict[str, Any]) -> float | None:
-    """Funcție pentru ultim mediu consum."""
+    """Return latest valid average consumption."""
 
     intervals = fuel_consumption_intervals(entry, vehicle)
     if not intervals:

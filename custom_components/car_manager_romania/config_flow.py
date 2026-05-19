@@ -1,4 +1,4 @@
-"""Modul pentru configurarea integrației Car Manager România."""
+"""Config flow for Car Manager România."""
 
 from __future__ import annotations
 
@@ -12,18 +12,6 @@ from homeassistant.util import slugify
 
 from .const import (
     CONF_KM,
-    CONF_NOTIFICATIONS_ENABLED,
-    CONF_NOTIFY_BATTERY,
-    CONF_NOTIFY_EQUIPMENT,
-    CONF_NOTIFY_EXPENSES,
-    CONF_NOTIFY_LEGAL,
-    CONF_NOTIFY_MAINTENANCE,
-    DEFAULT_NOTIFICATIONS_ENABLED,
-    DEFAULT_NOTIFY_BATTERY,
-    DEFAULT_NOTIFY_EQUIPMENT,
-    DEFAULT_NOTIFY_EXPENSES,
-    DEFAULT_NOTIFY_LEGAL,
-    DEFAULT_NOTIFY_MAINTENANCE,
     CONF_LICENSE_PLATE,
     CONF_NAME,
     CONF_ROVINIETA_PASSWORD,
@@ -39,7 +27,7 @@ from .const import (
 
 
 class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Clasă pentru configurare flux."""
+    """Handle a config flow for Car Manager România."""
 
     VERSION = 1
 
@@ -47,7 +35,7 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> CarManagerOptionsFlow:
-        """Gestionează asincron operațiunea pentru get opțiuni flux."""
+        """Create the options flow."""
 
         return CarManagerOptionsFlow(config_entry)
 
@@ -55,7 +43,7 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Gestionează asincron operațiunea pentru step user."""
+        """Initial setup."""
 
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
@@ -82,10 +70,10 @@ class CarManagerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class CarManagerOptionsFlow(config_entries.OptionsFlow):
-    """Clasă pentru opțiuni flux."""
+    """Handle options for Car Manager România."""
 
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
-        """Funcție internă pentru init."""
+        """Initialize options flow."""
 
         self._entry = entry
 
@@ -93,18 +81,18 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Gestionează asincron operațiunea pentru step init."""
+        """Show options menu."""
 
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_vehicle", "rovinieta", "notifications"],
+            menu_options=["add_vehicle", "rovinieta"],
         )
 
     async def async_step_add_vehicle(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Gestionează asincron operațiunea pentru step adăugare vehicul."""
+        """Add a vehicle."""
 
         if user_input is not None:
             existing_vehicles = list(
@@ -159,7 +147,7 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        """Gestionează asincron operațiunea pentru step rovinietă."""
+        """Configure internal e-rovinieta.ro account."""
 
         options = dict(self._entry.options)
 
@@ -203,94 +191,13 @@ class CarManagerOptionsFlow(config_entries.OptionsFlow):
             },
         )
 
-
-    async def async_step_notifications(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> FlowResult:
-        """Configurează notificările generate de integrare."""
-
-        options = dict(self._entry.options)
-
-        if user_input is not None:
-            options[CONF_NOTIFICATIONS_ENABLED] = bool(
-                user_input.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED)
-            )
-            options[CONF_NOTIFY_MAINTENANCE] = bool(
-                user_input.get(CONF_NOTIFY_MAINTENANCE, DEFAULT_NOTIFY_MAINTENANCE)
-            )
-            options[CONF_NOTIFY_LEGAL] = bool(
-                user_input.get(CONF_NOTIFY_LEGAL, DEFAULT_NOTIFY_LEGAL)
-            )
-            options[CONF_NOTIFY_EQUIPMENT] = bool(
-                user_input.get(CONF_NOTIFY_EQUIPMENT, DEFAULT_NOTIFY_EQUIPMENT)
-            )
-            options[CONF_NOTIFY_BATTERY] = bool(
-                user_input.get(CONF_NOTIFY_BATTERY, DEFAULT_NOTIFY_BATTERY)
-            )
-            options[CONF_NOTIFY_EXPENSES] = bool(
-                user_input.get(CONF_NOTIFY_EXPENSES, DEFAULT_NOTIFY_EXPENSES)
-            )
-
-            return self.async_create_entry(title="", data=options)
-
-        return self.async_show_form(
-            step_id="notifications",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_NOTIFICATIONS_ENABLED,
-                        default=options.get(
-                            CONF_NOTIFICATIONS_ENABLED,
-                            DEFAULT_NOTIFICATIONS_ENABLED,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_NOTIFY_MAINTENANCE,
-                        default=options.get(
-                            CONF_NOTIFY_MAINTENANCE,
-                            DEFAULT_NOTIFY_MAINTENANCE,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_NOTIFY_LEGAL,
-                        default=options.get(
-                            CONF_NOTIFY_LEGAL,
-                            DEFAULT_NOTIFY_LEGAL,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_NOTIFY_EQUIPMENT,
-                        default=options.get(
-                            CONF_NOTIFY_EQUIPMENT,
-                            DEFAULT_NOTIFY_EQUIPMENT,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_NOTIFY_BATTERY,
-                        default=options.get(
-                            CONF_NOTIFY_BATTERY,
-                            DEFAULT_NOTIFY_BATTERY,
-                        ),
-                    ): bool,
-                    vol.Optional(
-                        CONF_NOTIFY_EXPENSES,
-                        default=options.get(
-                            CONF_NOTIFY_EXPENSES,
-                            DEFAULT_NOTIFY_EXPENSES,
-                        ),
-                    ): bool,
-                }
-            ),
-        )
-
     @staticmethod
     def _generate_vehicle_id(
         vehicles: list[dict[str, Any]],
         license_plate: str,
         vehicle_name: str,
     ) -> str:
-        """Funcție internă pentru generate vehicul ID."""
+        """Generate a stable vehicle ID."""
 
         base_id = slugify(license_plate) or slugify(vehicle_name) or "autovehicul"
         existing_ids = {vehicle.get("vehicle_id") for vehicle in vehicles}

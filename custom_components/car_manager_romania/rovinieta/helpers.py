@@ -1,4 +1,4 @@
-"""Modul pentru funcții ajutătoare."""
+"""Helper functions for e-rovinieta.ro."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 
 def parse_unix_timestamp(value: Any) -> datetime | None:
-    """Funcție pentru parse unix timestamp."""
+    """Parse a Unix timestamp to UTC datetime."""
     if value in (None, "", 0, "0"):
         return None
 
@@ -19,7 +19,7 @@ def parse_unix_timestamp(value: Any) -> datetime | None:
 
 
 def parse_date_string(value: Any) -> datetime | None:
-    """Funcție pentru parse dată string."""
+    """Parse common date formats from the API."""
     if not value:
         return None
 
@@ -53,7 +53,7 @@ def parse_date_string(value: Any) -> datetime | None:
 
 
 def safe_float(value: Any) -> float | None:
-    """Funcție pentru safe float."""
+    """Convert a value to float."""
     if value in (None, ""):
         return None
     try:
@@ -63,14 +63,14 @@ def safe_float(value: Any) -> float | None:
 
 
 def clean_text(value: Any) -> str | None:
-    """Funcție pentru clean text."""
+    """Return cleaned text."""
     if value in (None, ""):
         return None
     return unescape(str(value)).strip() or None
 
 
 def slugify_plate(plate: str) -> str:
-    """Funcție pentru slugify număr de înmatriculare."""
+    """Create a stable slug for a plate number."""
     return (
         plate.lower()
         .replace(" ", "_")
@@ -80,7 +80,7 @@ def slugify_plate(plate: str) -> str:
 
 
 def redact_token(value: str | None) -> str | None:
-    """Funcție pentru redact token."""
+    """Redact a token."""
     if not value:
         return value
     if len(value) <= 8:

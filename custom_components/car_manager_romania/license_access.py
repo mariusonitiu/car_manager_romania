@@ -1,4 +1,4 @@
-"""Modul pentru aplicarea accesului permis de licență."""
+"""License access helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .license import async_obtine_licenta_globala, licenta_este_acceptata
 
 
 def _first_vehicle_id_from_list(vehicles: Any, allowed_ids: set[str] | None = None) -> str | None:
-    """Funcție internă pentru primul ID de vehicul din listă."""
+    """Return the first non-removed vehicle id from a vehicle list."""
 
     for vehicle in list(vehicles or []):
         if not isinstance(vehicle, dict) or bool(vehicle.get(CONF_REMOVED)):
@@ -26,7 +26,13 @@ def _first_vehicle_id_from_list(vehicles: Any, allowed_ids: set[str] | None = No
 
 
 def first_enabled_vehicle_id(entry: Any) -> str | None:
-    """Funcție pentru first enabled vehicul ID."""
+    """Return the vehicle that remains available in free mode.
+
+    The free vehicle must be selected from the complete configured list, not
+    from a license-filtered list.  Prefer the original config-entry data order
+    when it is still valid, because Home Assistant options/storage may be
+    rewritten later while editing vehicles and can change ordering.
+    """
 
     runtime_data = getattr(entry, "runtime_data", None)
     all_vehicles = list(getattr(runtime_data, "all_vehicles", []) or [])
@@ -55,7 +61,7 @@ def first_enabled_vehicle_id(entry: Any) -> str | None:
 
 
 def vehicle_allowed_by_license(entry: Any, vehicle_id: str, license_allows_all: bool) -> bool:
-    """Funcție pentru vehicul permise by licență."""
+    """Return True when a vehicle may expose data under the current license."""
 
     if license_allows_all:
         return True
@@ -68,7 +74,7 @@ def vehicle_allowed_by_license(entry: Any, vehicle_id: str, license_allows_all: 
 
 
 def locked_vehicle_attributes(vehicle_id: str) -> dict[str, Any]:
-    """Funcție pentru blocate vehicul atribute."""
+    """Return neutral attributes for a license-locked vehicle entity."""
 
     return {
         "vehicle_id": str(vehicle_id or ""),
@@ -78,7 +84,7 @@ def locked_vehicle_attributes(vehicle_id: str) -> dict[str, Any]:
 
 
 async def async_license_allows_all_vehicles(hass: HomeAssistant) -> bool:
-    """Gestionează asincron operațiunea pentru licență allows all vehicule."""
+    """Read the global license store and decide if all vehicles may be used."""
 
     storage = await async_obtine_licenta_globala(hass)
     storage = storage if isinstance(storage, dict) else {}

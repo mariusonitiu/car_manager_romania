@@ -1,4 +1,4 @@
-"""Modul pentru echipamentele de siguranță ale vehiculelor."""
+"""Equipment/safety kit helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ MANDATORY_EQUIPMENT_TYPES: tuple[str, ...] = (
 
 
 class CarManagerEquipmentItemStore:
-    """Clasă pentru stocarea elementelor de echipare."""
+    """Store vehicle equipment/safety kit items separately from vehicles."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._store: Store = Store(hass, STORAGE_VERSION_EQUIPMENT_ITEMS, STORAGE_KEY_EQUIPMENT_ITEMS)
@@ -108,7 +108,7 @@ def _equipment_status(expiry_date: str) -> tuple[str, int | None]:
 
 
 def normalize_equipment_item(raw: dict[str, Any]) -> dict[str, Any]:
-    """Funcție pentru normalizare echipamente element."""
+    """Return a safe equipment item dictionary."""
 
     equipment_type = str(raw.get("equipment_type") or "").strip()
     if equipment_type not in EQUIPMENT_TYPES:
@@ -154,7 +154,7 @@ def equipment_items_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> list[dic
 
 
 def equipment_issues_for_vehicle(entry: Any, vehicle: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Funcție pentru echipamente probleme for vehicul."""
+    """Return critical and warning safety-equipment issues for one vehicle."""
 
     critical_items: list[dict[str, Any]] = []
     warning_items: list[dict[str, Any]] = []

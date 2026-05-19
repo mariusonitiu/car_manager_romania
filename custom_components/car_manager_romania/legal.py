@@ -1,4 +1,4 @@
-"""Modul pentru termene legale ale vehiculelor."""
+"""Legal term helpers for Car Manager România."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from .maintenance import parse_date
 
 
 def get_legal_term(vehicle: dict[str, Any], legal_type: str) -> dict[str, Any]:
-    """Funcție pentru get legal termen."""
+    """Return legal term data for a vehicle."""
 
     legal_terms = vehicle.get(CONF_LEGAL_TERMS, {})
     if not isinstance(legal_terms, dict):
@@ -31,7 +31,7 @@ def get_legal_term(vehicle: dict[str, Any], legal_type: str) -> dict[str, Any]:
 
 
 def get_legal_value(vehicle: dict[str, Any], legal_type: str, field: str) -> Any:
-    """Funcție pentru get legal valoare."""
+    """Return a legal term value."""
 
     return get_legal_term(vehicle, legal_type).get(field)
 
@@ -42,7 +42,7 @@ def set_legal_value(
     field: str,
     value: Any,
 ) -> None:
-    """Funcție pentru set legal valoare."""
+    """Set a legal term value."""
 
     if CONF_LEGAL_TERMS not in vehicle or not isinstance(vehicle[CONF_LEGAL_TERMS], dict):
         vehicle[CONF_LEGAL_TERMS] = {}
@@ -57,24 +57,24 @@ def set_legal_value(
 
 
 def is_legal_ignored(vehicle: dict[str, Any], legal_type: str) -> bool:
-    """Funcție pentru is legal ignored."""
+    """Return whether an optional legal term is intentionally ignored."""
 
     return bool(get_legal_value(vehicle, legal_type, LEGAL_OPTION_IGNORED))
 
 
 def set_legal_ignored(vehicle: dict[str, Any], legal_type: str, ignored: bool) -> None:
-    """Funcție pentru set legal ignored."""
+    """Persist whether an optional legal term should be ignored."""
 
     set_legal_value(vehicle, legal_type, LEGAL_OPTION_IGNORED, bool(ignored))
 
 
 def legal_is_configured(vehicle: dict[str, Any], legal_type: str) -> bool:
-    """Funcție pentru legal is configured."""
+    """Return True when a legal term has at least an expiration date."""
 
     return parse_date(get_legal_value(vehicle, legal_type, LEGAL_END_DATE)) is not None
 
 def legal_days_remaining(vehicle: dict[str, Any], legal_type: str) -> int | None:
-    """Funcție pentru legal zile rămași."""
+    """Return remaining days until legal term expiration."""
 
     end_date = parse_date(get_legal_value(vehicle, legal_type, LEGAL_END_DATE))
     if end_date is None:
@@ -84,7 +84,7 @@ def legal_days_remaining(vehicle: dict[str, Any], legal_type: str) -> int | None
 
 
 def legal_status(vehicle: dict[str, Any], legal_type: str) -> str:
-    """Funcție pentru statusul termenului legal."""
+    """Return calculated legal term status."""
 
     end_date = parse_date(get_legal_value(vehicle, legal_type, LEGAL_END_DATE))
     if end_date is None:

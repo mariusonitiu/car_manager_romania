@@ -1,4 +1,4 @@
-"""Modul coordonator pentru date externe."""
+"""Data coordinator for the internal rovinieta module."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class CarManagerRovinietaCoordinator(DataUpdateCoordinator[AccountData]):
-    """Clasă pentru rovinietă coordonator."""
+    """Coordinator for e-rovinieta.ro data inside Car Manager România."""
 
     def __init__(
         self,
@@ -25,7 +25,7 @@ class CarManagerRovinietaCoordinator(DataUpdateCoordinator[AccountData]):
         client: ERovinietaApiClient,
         scan_interval_seconds: int,
     ) -> None:
-        """Funcție internă pentru init."""
+        """Initialize coordinator."""
 
         super().__init__(
             hass,
@@ -37,7 +37,7 @@ class CarManagerRovinietaCoordinator(DataUpdateCoordinator[AccountData]):
         self.client = client
 
     async def _async_update_data(self) -> AccountData:
-        """Funcție internă pentru actualizare date."""
+        """Fetch and normalize rovinieta data."""
 
         try:
             payload = await self.client.async_fetch_all()
