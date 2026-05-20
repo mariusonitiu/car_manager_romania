@@ -451,7 +451,7 @@ class CarManagerRomaniaCard extends HTMLElement {
         </div>
 
         ${showDonationHint ? `<div class="cmr-license-donation-note">Dacă nu ai încă o licență validă, aceasta se poate obține printr-o donație minimă pe Buy me a Coffee. Pentru emiterea licenței, după donație scrie în mesaj: „Licență Car Manager România” și adresa de e-mail pe care dorești să primești cheia.</div>` : ""}
-        <a class="cmr-bmc-button" href="https://www.buymeacoffee.com/mariusonitiu" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee">
+        <a class="cmr-bmc-button" href="https://www.buymeacoffee.com/haforgelabs" target="_blank" rel="noopener noreferrer" aria-label="Buy me a coffee">
           <span class="cmr-bmc-emoji">☕</span>
           <span>Buy me a coffee</span>
         </a>
